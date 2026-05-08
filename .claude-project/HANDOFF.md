@@ -20,6 +20,7 @@ summary: accounts.json 정비 + MCP list_* 툴 → resource 전환 (시스템 �
 - ✅ `accounts.example.json` 제거 (README 인라인 샘플로 일원화)
 - ✅ 테스트 204 → 209 (신규 5개 resource 테스트 통과)
 - ✅ 커밋 + 푸시: `e163600 refactor(mcp): move list_* tools to MCP resources for token reduction`
+- ✅ 참조 자료 추가 + .gitignore에 `.omc/sessions/` 추가: `4ef0a18 docs(references): 광고운영 워크플로우·AI코멘트 기획안·샘플 HTML 추가`
 - ⏳ 사용자 측 Claude Desktop 재시작 필요 (새 MCP config 적용)
 
 ## Next Steps
