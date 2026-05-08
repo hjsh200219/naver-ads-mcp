@@ -1,7 +1,8 @@
-# helloMAX Weekly Report Automation — Plan v1.1 (LOCKED + Codex resolutions)
+# helloMAX Weekly Report Automation — Plan v1.2 (LOCKED, no payment gate)
 
-> 상태: **LOCKED v1.1** (ralplan 합의 + Codex adversarial CONDITIONAL → Q1·Q2 사용자 답변으로 해소)
+> 상태: **LOCKED v1.2** (v1.1 + 사용자 결정 "결제 한도/결재 게이트 제거")
 > 작성: 2026-05-08
+> v1.2 변경점: ZBROS USD 결재 합의 게이트 전부 제거. 비용 모니터링은 visibility 알림만 유지(상한선·승인 절차 없음). Phase 1 GO는 PoC 산출물만 충족하면 진입.
 > 입력 자료: docs/references/(사업) 광고운영부서 업무 Workflow 작성*260429.docx, HelloMax*주간리포트*AI코멘트*기획안\_v2.0.docx, hellomax_weekly_comment_sample.html
 > 사용자 제약: **광고주별 대시보드는 Claude Live Artifact로 구현**
 > v0.3 변경점: Observability/Cost/Rollback/Concurrency/Test-data/Training 절 신설, AC 측정 정의 보강, Open Q1·Q3 결정, Phase 3.5 데일리 분리, Principle 3 표현 정정, B Migration에 품질 트리거 추가
@@ -145,12 +146,12 @@ Phase 0 산출물: `docs/design-docs/layer-rules.md` 업데이트 + `.eslintrc` 
   - Gmail SMTP + AE OAuth 옵션 (개인 주소 신뢰도 영향)
   - EML 파일 export (AE 수동 발송) 안전 fallback
   - **default 결정**: SES + 도메인 인증, EML export 항시 가능
-- [ ] **PoC 3**: Cost ceiling 추정
+- [ ] **PoC 3**: Cost visibility 추정 (한도·결재 없음)
   - 주간: 6 광고주 × 4주 × 평균 재호출 1.5회 = 월 36 호출
   - 데일리(Phase 3.5): 6 광고주 × 5 영업일 × 4주 = 월 120 호출
-  - 합산 월 156 호출 × Sonnet 4.6 평균 토큰 → USD 추정
+  - 합산 월 156 호출 × Sonnet 4.6 평균 토큰 → USD 추정 (참고용)
   - prompt caching 적용 시 cache hit ≥ 80% 가정
-  - **ceiling**: 월 ZBROS 결재 라인 결정. 초과 시 `runtime/alert.ts` Slack 알림
+  - **알림 정책**: 월 누적 비용이 직전 월 평균 × 2배 초과 시 `runtime/alert.ts` Slack 알림 (visibility용, 차단 없음)
 - [ ] **결정**: Slack workspace = **ZBROS 워크스페이스** (Open Q3 해소). 채널 `#hellomax-mcp-alerts` 신설
 - [ ] **결정**: Hallucination guard 1차 ship 임계값 = **95%** (review_text 추출 숫자 ⊂ payload 사전계산 필드 비율). Phase 4 tuning 99% (Open Q1 해소)
 - [ ] Layer-rules.md 업데이트 + ESLint zone (위 표) + lint pass
@@ -161,17 +162,16 @@ Phase 0 산출물: `docs/design-docs/layer-rules.md` 업데이트 + `.eslintrc` 
 - [ ] **Test fixture 익명화**: `tests/fixtures/anonymized/` 6개 (광고주명·주소·매출 절대값 마스킹). CI에서만 사용. 실 엑셀(`docs/references/`)은 .gitignore 유지
 - [ ] **CI mock 정책**: Naver SearchAd API + Anthropic API 둘 다 mock (QUALITY.md 일관). live는 로컬 e2e 전용
 - [ ] **발송 테스트 inbox**: `qa+naver-mcp@zbros.co.kr` 지정 (광고주 실주소로 절대 발송 금지 in CI/dev)
-- [ ] **[NEW v0.4] ZBROS 결재 라인 USD/월 서면 합의 (Phase 1 GO 게이트)** — Phase 0 PoC 비용 추정 결과를 ZBROS 결재권자에게 보고하고 월 USD ceiling을 서면(Slack post + Notion or 이메일 회신)으로 확정. 이 합의 없이 Phase 1 미진입.
 - [ ] **[NEW v1.1] Live Artifact ↔ MCP 콜백 capability 실측 (Codex challenge)** — Anthropic 공식 도움말상 artifact가 stdio MCP로 직접 콜백 못한다는 가정 검증. PoC #1에서 (a) artifact JS의 `navigator.clipboard` 동작 확인, (b) artifact → Claude Desktop "재호출" 자연어 흐름 측정. 가정 깨지면 fallback: artifact는 preview only, 발송은 markdown/EML로 격하 (Codex 제안 대안)
 - [ ] **[NEW v1.1] Claude Max seat 사용량 한도 측정** — 월요일 피크에 prepare 9회 + 데일리 6회 = 15회/2시간이 Max plan cap 안에 들어가는지 실측. 초과 시 분산 호출 또는 API 키 이중 채널 검토
 - [ ] **[NEW v1.1] 택스아이 누락 고지 정책 결정** — Naver brand search 영역별·파워컨텐츠 일부 미지원 영역의 광고주 통보 방식. artifact 상단 배지 + email 본문 footer 1줄 + history JSONL `data_warnings[]` 필드 표준화
 - [ ] **[NEW v1.1] PII 최소화 prompt 설계** — Anthropic 호출 payload에서 (a) 수신자 이메일은 SHA256 hash, (b) 광고주명은 client_id로 마스킹 옵션 (광고주 톤 지키려면 회사명 필요할 수 있어 trade-off 결정), (c) 개인정보위 2025 생성형 AI 안내서 점검 1회
 
-**완료 기준**: PoC 3개 결과 문서 + 채널/임계값 결정 문서 + layer-rules update + ESLint pass + Anthropic ping + 6 매핑 + fixture 6개 + CI mock 통과 + **ZBROS 결재 합의 서면 1건**.
+**완료 기준**: PoC 3개 결과 문서 + 채널/임계값 결정 문서 + layer-rules update + ESLint pass + Anthropic ping + 6 매핑 + fixture 6개 + CI mock 통과.
 
 ### Phase 1 — Excel 파서 (1.5주)
 
-> **[NEW v0.4] 진입 의존성**: Phase 0 ZBROS USD 결재 합의 완료 후 진입.
+> **진입 의존성**: Phase 0 산출물(PoC 3건 + 매핑·fixture·CI mock) 충족 후 진입. 결재·승인 게이트 없음.
 
 - [ ] `src/parser/excel-template.ts` 3단계 파싱
 - [ ] `src/parser/precompute-kpi.ts` — 절대값 + 증감률 + 단위 변환 사전 계산
@@ -289,14 +289,14 @@ P4                                  ██████████████�
 
 ### 알림 채널
 
-| 이벤트                           | 채널                                               | 트리거      |
-| -------------------------------- | -------------------------------------------------- | ----------- |
-| 발송 성공                        | Slack `#hellomax-mcp-sends`                        | 매 발송     |
-| 발송 실패 (5분 재확인 후)        | Slack `#hellomax-mcp-alerts`                       | 자동        |
-| Anthropic 에러 (rate limit, 5xx) | Claude Desktop 화면 + Slack `#hellomax-mcp-alerts` | 즉시        |
-| Hallucination guard < 95%        | Slack `#hellomax-mcp-alerts`                       | 즉시        |
-| Cost ceiling 초과                | Slack `#hellomax-mcp-alerts`                       | 일 1회 검사 |
-| history JSONL append 실패        | throw + Slack                                      | 즉시        |
+| 이벤트                           | 채널                                               | 트리거                   |
+| -------------------------------- | -------------------------------------------------- | ------------------------ |
+| 발송 성공                        | Slack `#hellomax-mcp-sends`                        | 매 발송                  |
+| 발송 실패 (5분 재확인 후)        | Slack `#hellomax-mcp-alerts`                       | 자동                     |
+| Anthropic 에러 (rate limit, 5xx) | Claude Desktop 화면 + Slack `#hellomax-mcp-alerts` | 즉시                     |
+| Hallucination guard < 95%        | Slack `#hellomax-mcp-alerts`                       | 즉시                     |
+| 비용 급증 (전월 평균 ×2 초과)    | Slack `#hellomax-mcp-alerts`                       | 일 1회 검사 (visibility) |
+| history JSONL append 실패        | throw + Slack                                      | 즉시                     |
 
 ### AE 화면 표면화
 
@@ -305,21 +305,21 @@ P4                                  ██████████████�
 
 ---
 
-## Cost Ceiling (NEW §)
+## Cost Visibility (v1.2 — 한도/결재 없음, 가시성만)
 
-### 추정 (Phase 0 PoC에서 실측 후 확정)
+### 추정 (Phase 0 PoC에서 실측, 참고용)
 
-| 항목               | 월 호출 | 평균 input 토큰 | 평균 output | 추정 USD/월     |
-| ------------------ | ------- | --------------- | ----------- | --------------- |
-| 주간 (재호출 1.5x) | 36      | 8K (cache 80%)  | 2K          | TBD Phase 0     |
-| 데일리             | 120     | 4K (cache 80%)  | 1K          | TBD Phase 0     |
-| **합계**           | 156     | —               | —           | **TBD ceiling** |
+| 항목               | 월 호출 | 평균 input 토큰 | 평균 output | 추정 USD/월      |
+| ------------------ | ------- | --------------- | ----------- | ---------------- |
+| 주간 (재호출 1.5x) | 36      | 8K (cache 80%)  | 2K          | TBD Phase 0      |
+| 데일리             | 120     | 4K (cache 80%)  | 1K          | TBD Phase 0      |
+| **합계**           | 156     | —               | —           | **TBD (참고용)** |
 
-### Ceiling 정책
+### 모니터링 정책 (차단·승인 없음)
 
-- ZBROS 결재 라인 USD/월 결정 (Phase 0 산출물)
-- 일 검사 cron: 그 달 누적 비용 / 일수 × 30 > ceiling × 1.2 → Slack 알림
-- 비용 폭증 시 emergency: `MCP_DISABLE_DAILY=1` env flag로 데일리 OFF (rollback §)
+- **상한·결재 게이트 없음** (v1.2 결정)
+- 일 검사 cron: 그 달 누적 비용이 직전 월 평균 × 2배 초과 → Slack 알림 (visibility)
+- 비용 급증 시 운영자 판단으로 emergency: `MCP_DISABLE_DAILY=1` env flag로 데일리 OFF (rollback §)
 
 ---
 
@@ -382,7 +382,7 @@ P4                                  ██████████████�
 | AI 환각                                                        | 광고주 신뢰 손상                | 시스템 프롬프트 사전계산 인용 강제 + 출력 검증 95%(1차)→99%(P4) + confidence < 0.7 경고 + AE 강제 검토                                                                                                                                  |
 | 엑셀 변형                                                      | 파싱 실패                       | 3단계 파싱 + data_warnings + AE artifact 인지                                                                                                                                                                                           |
 | MCP 단일 장애점                                                | 운영 중단                       | stdio 모델 → 서버 outage 영향 없음                                                                                                                                                                                                      |
-| Anthropic rate/cost                                            | 운영비 폭증                     | prompt caching cache hit ≥ 80% + ceiling Slack 알림 + emergency disable flag                                                                                                                                                            |
+| Anthropic rate/cost                                            | 운영비 가시성                   | prompt caching cache hit ≥ 80% + 비용 급증 Slack 알림(visibility, 차단 없음) + 운영자 판단 emergency disable flag                                                                                                                       |
 | AE 머신 분실                                                   | PII/키 유출                     | Phase 4 runbook + 1Password 백업 + 자격증명 회전 절차                                                                                                                                                                                   |
 | Live artifact 데이터 유출                                      | 광고주 데이터 외부              | 외부 fetch 0 + clipboard 명시적 클릭만 (OS 클립보드 보안 한계 명시)                                                                                                                                                                     |
 | 0.7 confidence FP                                              | AE 피로                         | Phase 4 tuning: AE 피드백 5점 척도, 만족도 < 4/5 시 threshold 재산정                                                                                                                                                                    |
@@ -395,7 +395,7 @@ P4                                  ██████████████�
 | OS clipboard 누출                                              | 광고주 데이터 다른 앱 노출      | AE 교육: clipboard 30초 후 자동 비우기 OS 설정 권장                                                                                                                                                                                     |
 | **[NEW v1.1] 광고주 데이터 외부 LLM 전송 (Anthropic)**         | 계약·법적 책임                  | 광고주 NDA 허용 확인됨(v1.1). 단 (a) prompt에 들어가는 PII 최소화(수신자 이메일은 SHA256 hash, 회사명·KPI 절대값만 전송), (b) 개인정보위 2025 생성형 AI 안내서 점검 1회(Phase 0), (c) 2026년 광고주 계약 갱신 시 AI 사용 조항 명시 권장 |
 | **[NEW v1.1] 택스아이 등 데이터 비완전 광고주 누락 고지 부재** | 광고주 신뢰 손상·허위 표시 risk | Phase 0 PoC에 누락 고지 정책 결정 (artifact 상단 "❗ Naver API 미지원 영역(브랜드검색 영역별·파워컨텐츠 일부)은 본 리포트에서 제외됨" 배지) + Phase 2 dashboard/artifact-html에 구현                                                    |
-| **[NEW v1.1] Claude Max seat 사용량 한도 초과**                | 월요일 피크에 prepare/send 차단 | Phase 0 PoC #3에서 Max plan 주간 sessions/messages cap 측정 + ceiling 알림 트리거. 초과 시 AE 분산 호출(월요일 → 화/수 분배) 또는 Anthropic API 직접(API 키, plan 외) 이중 채널 검토                                                    |
+| **[NEW v1.1] Claude Max seat 사용량 한도 초과**                | 월요일 피크에 prepare/send 차단 | Phase 0 PoC #3에서 Max plan 주간 sessions/messages cap 측정 + 한도 근접 시 Slack 알림. 초과 시 AE 분산 호출(월요일 → 화/수 분배) 또는 Anthropic API 직접(API 키, plan 외) 이중 채널 검토                                                |
 
 ---
 
@@ -417,7 +417,7 @@ P4                                  ██████████████�
 | 12  | **데일리 (Phase 3.5)** 응답 ≤ 60초 + 임계값 검출 100% + Slack 발송                                               | 자동 + 수동                                                                                          |
 | 13  | **매뉴얼 검증** AE 1명 매뉴얼만으로 1광고주 발송 성공                                                            | Phase 4 수동                                                                                         |
 | 14  | **Concurrency 테스트** 동시 prepare/send race + atomic JSONL                                                     | 자동 (Phase 1·3)                                                                                     |
-| 15  | **Cost ceiling 정책** 결정 + Slack 알림 동작 + **ZBROS 결재 합의 서면 1건**                                      | Phase 0 산출물 + Phase 3 alert 검증                                                                  |
+| 15  | **Cost visibility 알림 동작** (전월 평균 ×2 초과 시 Slack)                                                       | Phase 3 alert 검증 (한도·결재 없음)                                                                  |
 | 16  | **[NEW v0.4] Phase 0 acceptance**: resource 등록 (`naver-ads://client-mappings`, `naver-ads://history/{client}`) | `mcp.list_resources()`로 노출 확인 (자동 unit test)                                                  |
 | 17  | **[NEW v0.4] Phase 0 acceptance**: client-mappings.json 스키마 검증 + 6 광고주 매핑 정합성                       | JSON schema validator (zod or ajv) unit test                                                         |
 | 18  | **[NEW v0.4] Phase 0 acceptance**: Anthropic API ping 성공 (auth + 1 token round-trip)                           | dry-run script                                                                                       |
@@ -496,7 +496,7 @@ P4                                  ██████████████�
 - 사용자 명시 제약("광고주별 대시보드는 Claude Live Artifact") 직접 충족
 - 6 광고주 × 1팀 규모에서 인프라 비용 0 + 운영 복잡도 최소
 - B/C로의 마이그레이션 경로를 모듈 경계(parser/analyzer/dashboard L2 분리, history URI 안정 유지)로 보존
-- ZBROS 결재 라인 USD ceiling을 Phase 0 게이트화 → 비용 노출 사전 차단
+- 비용은 visibility(전월 평균 ×2 초과 알림)만 두고 한도·결재 게이트 없음 (v1.2 결정) → 운영 마찰 최소화, 운영자 판단으로 emergency disable
 
 **Consequences**:
 
@@ -511,10 +511,10 @@ P4                                  ██████████████�
 **Follow-ups**:
 
 - Phase 5 (신규 광고주 온보딩 자동화) — v2 분리, out-of-scope
-- §Migration Path 트리거 정기 점검 (월 1회 ZBROS 운영 회의)
+- §Migration Path 트리거 정기 점검 (월 1회 운영 회고)
 - AE 만족도 < 4/5 또는 hallucination 사고 1건 이상 발생 시 즉시 §Migration Path 검토
 - 발송 후 클릭/오픈율 추적 요구 발생 시 SES open-tracking → backend Postgres 마이그레이션 검토
-- Phase 4 종료 후 prompt cache hit rate 실측 → cost ceiling 재산정 (월 1회)
+- Phase 4 종료 후 prompt cache hit rate 실측 → 비용 추정 갱신 (월 1회 운영 회고에서 검토)
 
 ---
 
@@ -533,7 +533,7 @@ P4                                  ██████████████�
 | 9      | 데일리 임계값 정의                                                | Phase 0 PoC 합의 (ROAS -20% MoM 등 후보)              | **deferred to Phase 0 PoC**                                                       |
 | 10     | B Migration 트리거                                                | 규모/기능/품질 3축 8개 트리거                         | **결정**                                                                          |
 | 11     | Principle 3 표현                                                  | "Evidenced runs, stateless artifact"로 정정           | **결정**                                                                          |
-| **12** | **[NEW v0.4]** ZBROS USD 결재 라인                                | **Phase 0 완료 게이트 + Phase 1 GO 의존성**           | **deferred to Phase 0 결재 합의**                                                 |
+| **12** | ~~ZBROS USD 결재 라인~~ (v1.2 폐기)                               | **사용자 결정: 결제 한도/결재 게이트 제거** (v1.2)    | **결정** (제거)                                                                   |
 | **13** | **[NEW v1.1] Codex Q1**: 광고주 NDA에 AI 분석·외부 API 전송 허용? | **사용자 확인: 허용**                                 | **결정**                                                                          |
 | **14** | **[NEW v1.1] Codex Q2**: 운영 Claude seat                         | **Claude Max**                                        | **결정**                                                                          |
 
@@ -545,4 +545,4 @@ P4                                  ██████████████�
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------- | --------------------------------------------- |
 | O1  | **택스아이 등 데이터 비완전 광고주(Naver brand search 영역별 미지원) 누락 고지·수동 보완 절차**                                                  | Codex Q3             | Phase 0 산출물 + Phase 2 artifact 디자인 반영 |
 | O2  | **Dev 인원 명시** — 8.5주 일정은 인원 가정에 민감. 1인이면 9주+ fallback 또는 scope 축소                                                         | Codex 일정 challenge | plan-approval 시점                            |
-| O3  | **Claude Max seat 운영 가정** — 월 156회+재호출+첨부 모델 호출이 월요일 피크에 Max plan 사용량 한도(주간 sessions/messages cap) 안에 들어가는가? | Codex Q2 후속        | Phase 0 PoC #3 (cost ceiling 추정에 통합)     |
+| O3  | **Claude Max seat 운영 가정** — 월 156회+재호출+첨부 모델 호출이 월요일 피크에 Max plan 사용량 한도(주간 sessions/messages cap) 안에 들어가는가? | Codex Q2 후속        | Phase 0 PoC #3 (cost visibility 추정에 통합)  |
