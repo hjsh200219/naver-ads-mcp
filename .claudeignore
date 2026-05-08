@@ -1,0 +1,37 @@
+# 빌드 산출물
+dist/
+*.tsbuildinfo
+
+# 의존성
+node_modules/
+
+# Lock 파일
+package-lock.json
+
+# 테스트 커버리지
+coverage/
+
+# 환경/비밀
+.env
+.env.*
+
+# IDE/에디터
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 하네스 작업 공간 (임시)
+_workspace/
+
+# 실 광고주 데이터 (private to local)
+docs/references/
+
+# OMC state (local-only)
+.omc/state/
+.omc/notepad.md
+.omc/project-memory.json
+.omc/research/
+.omc/logs/

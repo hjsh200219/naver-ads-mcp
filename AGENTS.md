@@ -1,0 +1,94 @@
+# Naver Ads MCP — Agent Guide
+
+> 본 문서는 에이전트 진입점입니다. 상세 규칙은 docs/ 하위 문서를 참조하세요.
+
+## 응답 스타일
+
+Be concise. No filler. Straight to the point. Use fewer words.
+
+## 프로젝트 개요
+
+TypeScript MCP server that automates Naver Search Ad data collection and generates the helloMAX 10-sheet Excel report. Brand search 영역별 성과는 Naver API 미지원으로 placeholder. (참조: GitHub Issue naver/searchad-apidoc#1072)
+
+## Tech Stack (요약)
+
+| 계층     | 기술                                       |
+| -------- | ------------------------------------------ |
+| Runtime  | Node.js 20+                                |
+| Language | TypeScript 5 (strict, NodeNext)            |
+| MCP      | @modelcontextprotocol/sdk                  |
+| Excel    | exceljs                                    |
+| HTTP     | fetch (native) + node:crypto (HMAC-SHA256) |
+| Test     | vitest                                     |
+
+## Architecture (Quick Reference)
+
+> 상세: [ARCHITECTURE.md](./ARCHITECTURE.md)
+
+5계층 구조 (의존 방향: L1 → L2 → L3 → L4 → L5):
+
+- **L5 Types**: `src/api/types.ts`, `src/pivot/types.ts`
+- **L4 Config**: `src/config/credentials.ts`
+- **L3 API**: `src/api/{client,signer,stat-reports,metadata}.ts`
+- **L2 Service**: `src/{raw,pivot,excel,util}/`
+- **L1 Runtime**: `src/{mcp/server,cli,index}.ts`
+
+## Health Stack
+
+| 명령                | 용도                       |
+| ------------------- | -------------------------- |
+| `npm run typecheck` | TypeScript 검증 (0 errors) |
+| `npm test`          | vitest run (153 passing)   |
+| `npm run build`     | tsc → dist/                |
+
+## Critical Constraints
+
+- `.env`는 절대 commit 금지. `.gitignore` 등록 완료
+- `accessLicense`/`secretKey` 필드는 `enumerable: false` (자격증명 비누출)
+- HMAC payload는 `{ts}.{METHOD}.{path-no-query}` 정확 매치
+- SECRET_KEY는 헤더 미전송 (서명 생성 전용)
+- 브랜드검색 영역별 성과 시트는 항상 hidden (API 미지원)
+
+## LLM 코딩 행동 원칙
+
+Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
+
+Tradeoff: These guidelines bias toward caution over speed. For trivial tasks, use judgment.
+
+1. Think Before Coding — Don't assume. Don't hide confusion. Surface tradeoffs. State assumptions explicitly; if multiple interpretations exist, present them; if simpler approach exists, say so; if unclear, stop and ask.
+2. Simplicity First — Minimum code that solves the problem. No speculative features, no single-use abstractions, no unrequested configurability, no error handling for impossible scenarios. If 200 lines could be 50, rewrite it.
+3. Surgical Changes — Touch only what you must. Don't improve adjacent code. Match existing style. Mention unrelated dead code but don't delete it. Remove only imports/vars/functions YOUR changes made unused.
+4. Goal-Driven Execution — Transform tasks into verifiable goals (write failing test first, then make it pass). For multi-step tasks, state a plan with verify steps. Loop independently until criteria met.
+
+## Documentation Map
+
+| 영역        | 문서                                                                                                                         |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| 아키텍처    | [ARCHITECTURE.md](./ARCHITECTURE.md), [docs/design-docs/layer-rules.md](./docs/design-docs/layer-rules.md)                   |
+| 품질·안정성 | [docs/QUALITY.md](./docs/QUALITY.md), [docs/RELIABILITY.md](./docs/RELIABILITY.md)                                           |
+| 보안        | [docs/SECURITY.md](./docs/SECURITY.md)                                                                                       |
+| 제품 원칙   | [docs/PRODUCT_SENSE.md](./docs/PRODUCT_SENSE.md), [docs/design-docs/core-beliefs.md](./docs/design-docs/core-beliefs.md)     |
+| 계획·부채   | [docs/PLANS.md](./docs/PLANS.md), [docs/exec-plans/tech-debt-tracker.md](./docs/exec-plans/tech-debt-tracker.md)             |
+| 하네스      | [docs/harness/principles.md](./docs/harness/principles.md), [docs/harness/harness-setup.md](./docs/harness/harness-setup.md) |
+| 사용 가이드 | [README.md](./README.md)                                                                                                     |
+
+## Pre-Implementation Checklist
+
+> 상세: [docs/harness/harness-setup.md](./docs/harness/harness-setup.md)
+
+핵심 5개:
+
+1. TDD: 새 기능은 실패하는 테스트 먼저 작성
+2. 함수 50줄 이하, 매개변수 4개 이하, 중첩 3단계 이내
+3. import 방향 준수 (L1 ← L2 ← L3 ← L4 ← L5)
+4. 자격증명은 절대 로그·에러·toString에 노출 금지
+5. 새 기능 추가 시 기존 패턴(`enumerable=false`, HMAC 서명, retry semantics) 재활용
+
+## Status Protocol
+
+작업 종료 시 다음 중 하나로 보고:
+
+- `DONE` — 모든 acceptance criteria 충족
+- `DONE_WITH_CONCERNS` — 완료되었으나 follow-up 필요
+- `BLOCKED` — 외부 의존성으로 차단
+- `NEEDS_CONTEXT` — 명확화 필요
