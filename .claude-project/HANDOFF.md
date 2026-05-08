@@ -1,10 +1,23 @@
 ---
-created: 2026-05-08T13:30:00+09:00
+created: 2026-05-08T16:00:00+09:00
 project: naver-ads-mcp
-summary: 12 user stories 완료(153 tests) → 하네스 셋업 → GC #1 baseline L4 (82.26) → GitHub private repo 배포
+summary: 워크스페이스 폴더명 zebra-brothers-ae → naver-ads-mcp 일괄 갱신 (docs only)
 ---
 
 ## Session Digest
+
+워크스페이스 폴더명을 `naver-ads-mcp`로 변경한 것에 맞춰 프로젝트 내 잔존 과거 이름(`zebra-brothers-ae`)을 일괄 갱신. 코드 변경 없음, 문서/계획서 5개 파일만 수정.
+
+수정 대상:
+
+- `README.md` — MCP 서버 등록 예제 절대 경로 2곳
+- `.omc/plans/architect-review-r1.md` — References 섹션 경로 2곳
+- `.omc/plans/naver-ads-access-plan.md` — 프로젝트 헤더 + 파일 구조 트리
+- `.claude-project/HANDOFF.md` — Session Digest 프로젝트명
+
+`zebra-brothers-ax`(sister project) 참조는 별개 프로젝트이므로 보존. `.claude/settings.local.json`의 `ProjectMarketing/` 부모 디렉터리 권한도 유효하므로 미변경.
+
+### 직전 세션 (2026-05-08 13:30) 컨텍스트 보존
 
 새 프로젝트 `naver-ads-mcp`를 zero에서 production-ready MCP 서버로 구축. 핵심 흐름:
 
