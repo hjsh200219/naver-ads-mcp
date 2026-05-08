@@ -6,7 +6,7 @@ summary: 12 user stories 완료(153 tests) → 하네스 셋업 → GC #1 baseli
 
 ## Session Digest
 
-새 프로젝트 `zebra-brothers-ae` (naver-ads-mcp)을 zero에서 production-ready MCP 서버로 구축. 핵심 흐름:
+새 프로젝트 `naver-ads-mcp`를 zero에서 production-ready MCP 서버로 구축. 핵심 흐름:
 
 1. **Ralplan 합의 (Iteration 2)** — Naver Search Ad API 접근 설계. Architect r2 APPROVE_AS_IS, Critic r2 APPROVE. 11/11 actions 적용. ADR/RALPLAN-DR 문서 6개 .omc/plans/에 저장.
 2. **다차원 보고서 조사** — `<키워드_운영성과>`/`<키워드_전환성과>` API 매핑. Naver 공식: AD/AD_DETAIL + AD_CONVERSION/AD_CONVERSION_DETAIL reportTp로 근사 재현 가능. 다차원 보고서 자체는 API 미제공.

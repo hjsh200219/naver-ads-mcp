@@ -4,15 +4,16 @@
 
 네이버 검색광고 API를 통해 helloMAX 광고주의 운영·전환 데이터를 수집하고, **`(FORM) helloMAX Report.xlsx` 템플릿과 동일한 10시트 구조의 엑셀**을 자동 생성하는 MCP 서버입니다.
 
-| 구분 | 시트 | 자동화 방식 |
-|---|---|---|
-| 표시(Pivot) | SUMMARY, 매체별 성과, 키워드 성과, 상품 성과, 검색어 성과 | 클라이언트 측 집계 |
-| 표시(템플릿 placeholder) | **브랜드검색 성과** | ⚠️ **API 미지원** — placeholder 시트 (수기 입력) |
-| 원천(RAW) | 일별RAW, 키워드RAW, 검색어RAW, 소재RAW | `/stat-reports` API |
+| 구분                     | 시트                                                      | 자동화 방식                                      |
+| ------------------------ | --------------------------------------------------------- | ------------------------------------------------ |
+| 표시(Pivot)              | SUMMARY, 매체별 성과, 키워드 성과, 상품 성과, 검색어 성과 | 클라이언트 측 집계                               |
+| 표시(템플릿 placeholder) | **브랜드검색 성과**                                       | ⚠️ **API 미지원** — placeholder 시트 (수기 입력) |
+| 원천(RAW)                | 일별RAW, 키워드RAW, 검색어RAW, 소재RAW                    | `/stat-reports` API                              |
 
 ## 브랜드검색 성과 시트는 왜 자동화되지 않는가
 
 네이버 검색광고 공식 답변 (GitHub Issue [#1072](https://github.com/naver/searchad-apidoc/issues/1072)):
+
 > "해당 지표는 소재관리화면에서만 제공되며 별도 리포트로 제공되지 않습니다."
 
 브랜드검색 광고의 영역별 성과(홈링크/메인이미지/타이틀/섬네일.1~9 등)는 `ads.naver.com`의 소재관리 화면에서만 확인 가능하며, API로는 제공되지 않습니다. 따라서 본 MCP는 브랜드검색 성과 시트를 템플릿 형태(hidden)로만 출력합니다.
@@ -20,6 +21,7 @@
 ## 사전 준비
 
 ### 1. API 키 발급
+
 1. [네이버 검색광고 센터](https://manage.searchad.naver.com) 로그인
 2. 도구 → API 사용관리 → API 사용자 생성
 3. 다음 3개 값 발급:
@@ -28,7 +30,9 @@
    - `SECRET_KEY`
 
 ### 2. `.env` 작성
+
 프로젝트 루트의 `.env.example`을 참고하여 `.env` 파일을 생성:
+
 ```
 NAVER_ADS_CUSTOMER_ID=your-customer-id
 NAVER_ADS_ACCESS_LICENSE=your-access-license
@@ -38,6 +42,7 @@ NAVER_ADS_SECRET_KEY=your-secret-key
 ⚠️ `.env` 파일은 절대 커밋하지 않습니다. `.gitignore`에 이미 포함되어 있습니다.
 
 ### 3. 키 회전 (Key Rotation) 절차
+
 - 키 유출이 의심되거나 발급자 퇴사 시 즉시 회전
 - 절차: 네이버 검색광고 센터 → 도구 → API 사용관리 → 기존 키 폐기 → 새 키 발급 → `.env` 업데이트
 - 회전 후 `npm start`로 서버 재기동 후 `validate_credentials` 도구로 검증 권장
@@ -52,20 +57,23 @@ npm run build
 ## 사용 방법
 
 ### 로컬 실행 (CLI)
+
 ```bash
 npm start
 ```
+
 표준입출력(stdio) 위에서 MCP 서버가 동작합니다.
 
 ### Claude Code에 MCP 서버로 등록
 
 `~/.claude/settings.json` 또는 `.claude/settings.local.json`의 `mcpServers` 항목에 추가:
+
 ```json
 {
   "mcpServers": {
     "naver-ads": {
       "command": "node",
-      "args": ["/absolute/path/to/zebra-brothers-ae/dist/cli.js"],
+      "args": ["/absolute/path/to/naver-ads-mcp/dist/cli.js"],
       "env": {
         "NAVER_ADS_CUSTOMER_ID": "...",
         "NAVER_ADS_ACCESS_LICENSE": "...",
@@ -77,13 +85,14 @@ npm start
 ```
 
 또는 `.env`를 통해 환경변수를 주입:
+
 ```json
 {
   "mcpServers": {
     "naver-ads": {
       "command": "npx",
-      "args": ["tsx", "/absolute/path/to/zebra-brothers-ae/src/cli.ts"],
-      "cwd": "/absolute/path/to/zebra-brothers-ae"
+      "args": ["tsx", "/absolute/path/to/naver-ads-mcp/src/cli.ts"],
+      "cwd": "/absolute/path/to/naver-ads-mcp"
     }
   }
 }
@@ -91,27 +100,27 @@ npm start
 
 ## 제공하는 MCP Tools
 
-| 도구 | 인자 | 반환 |
-|---|---|---|
-| `validate_credentials` | 없음 | `{ok, message}` — 자격증명 유효성 검증 |
-| `list_report_types` | 없음 | 지원하는 10개 reportTp 목록 + 보관 기간 + 설명 |
-| `fetch_raw_data` | `{reportTp, startDate(YYYYMMDD), endDate(YYYYMMDD)}` | `{rows, count, reportTp}` |
-| `generate_report` | `{startDate, endDate, outputPath}` | `{path, sheetNames, visibility, rowCount}` — 10시트 xlsx 생성 |
+| 도구                   | 인자                                                 | 반환                                                          |
+| ---------------------- | ---------------------------------------------------- | ------------------------------------------------------------- |
+| `validate_credentials` | 없음                                                 | `{ok, message}` — 자격증명 유효성 검증                        |
+| `list_report_types`    | 없음                                                 | 지원하는 10개 reportTp 목록 + 보관 기간 + 설명                |
+| `fetch_raw_data`       | `{reportTp, startDate(YYYYMMDD), endDate(YYYYMMDD)}` | `{rows, count, reportTp}`                                     |
+| `generate_report`      | `{startDate, endDate, outputPath}`                   | `{path, sheetNames, visibility, rowCount}` — 10시트 xlsx 생성 |
 
 ## 데이터 보관 기간 (Naver 공식)
 
-| reportTp | 보관 |
-|---|---|
-| AD (광고효과보고서) | 365일 |
-| AD_DETAIL (키워드 단위 운영) | 180일 |
-| AD_CONVERSION | 365일 |
+| reportTp                                    | 보관        |
+| ------------------------------------------- | ----------- |
+| AD (광고효과보고서)                         | 365일       |
+| AD_DETAIL (키워드 단위 운영)                | 180일       |
+| AD_CONVERSION                               | 365일       |
 | **AD_CONVERSION_DETAIL** (키워드 단위 전환) | **45일** ⚠️ |
-| EXPKEYWORD (파워링크 검색어) | 365일 |
-| SHOPPINGKEYWORD_DETAIL | 180일 |
-| SHOPPINGKEYWORD_CONVERSION_DETAIL | 45일 |
-| SHOPPINGBRANDPRODUCT | 365일 |
-| SHOPPINGBRANDPRODUCT_CONVERSION | 365일 |
-| BRND_CONTRACT (브랜드검색) | 120일 |
+| EXPKEYWORD (파워링크 검색어)                | 365일       |
+| SHOPPINGKEYWORD_DETAIL                      | 180일       |
+| SHOPPINGKEYWORD_CONVERSION_DETAIL           | 45일        |
+| SHOPPINGBRANDPRODUCT                        | 365일       |
+| SHOPPINGBRANDPRODUCT_CONVERSION             | 365일       |
+| BRND_CONTRACT (브랜드검색)                  | 120일       |
 
 ⚠️ `AD_CONVERSION_DETAIL`이 45일밖에 보관되지 않으므로, 키워드 단위 전환 데이터를 365일치 누적 보관하려면 **매일 자동 수집(cron / GitHub Actions)** 이 필요합니다.
 

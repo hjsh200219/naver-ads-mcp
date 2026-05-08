@@ -53,6 +53,7 @@ Plan의 D3과 Q3가 운영 환경을 미결로 남겨두면서, 동시에 섹션
 **B. Library/runtime choice** — TypeScript/Node 20+는 방어 가능. Sister project가 TS 스택이므로 일관성 있다. 단 sister project에 `package.json`이 아직 없고 docs만 있는 상태이므로 "일관성"은 약한 근거임을 인지해야 한다. TS 선택의 진짜 근거는 Vercel 배포 호환성과 팀 역량. 권장: TS 유지.
 
 **C. HMAC signing surface** — Plan의 HMAC 설명이 부족. 다음을 명시해야 한다:
+
 1. **Timestamp 단위**: epoch milliseconds. Plan은 "타임스탬프"라고만 표기.
 2. **서명 페이로드 형식**: `{timestamp}.{method}.{URI}` (URI는 path만, query string 미포함).
 3. **Clock skew tolerance**: ±5분 가량.
@@ -60,6 +61,7 @@ Plan의 D3과 Q3가 운영 환경을 미결로 남겨두면서, 동시에 섹션
 5. **재시도 의미론**: 401 → 새 timestamp 재서명 1회 시도, 5xx → exponential backoff, 429 → `Retry-After` 존중.
 
 **D. Secrets handling depth** — 현재 수준은 **최소 요건도 충족하지 못한다** — `.gitignore`가 부재하기 때문. 추가 레이어 평가:
+
 - Sealed object: 과도. `enumerable: false`로 충분.
 - Buffer zeroing: Node GC 모델에서 실효성 낮음, 불필요.
 - 1Password CLI: 그린필드 MVP에서는 P4 위반. 배포 타겟 확정 후 재검토.
@@ -70,6 +72,7 @@ Plan의 D3과 Q3가 운영 환경을 미결로 남겨두면서, 동시에 섹션
 **F. Deployment target ambiguity** — 네 타겟을 동시에 미결로 두는 것이 문제. Vercel cold-start, GitHub Actions OIDC, 서버 데몬 graceful shutdown은 CLI 진입점과 다른 설계를 요구. **권장**: Local CLI를 primary로 확정, credential loader 추상화로 swap 가능하게 설계.
 
 **G. Pre-mortem completeness** — 누락된 고영향 시나리오:
+
 1. **Rate limit / 429 quota exhaustion**: 6개 광고주의 캠페인+키워드 조회 시 quota 초과 가능. 대응: throttling, `Retry-After` 존중, partial failure 처리.
 2. **Multiple CUSTOMER_ID**: 단일 ID 구조의 깨짐. 대응: config 배열/맵 허용.
 3. **Key rotation procedure**: 키 발급자 퇴사·유출 시 절차 부재. 대응: README에 키 회전 섹션 추가.
@@ -77,6 +80,7 @@ Plan의 D3과 Q3가 운영 환경을 미결로 남겨두면서, 동시에 섹션
 5. **이미 노출된 자격증명 창**: agent transcript·shell history 노출 가능성. 대응: 즉시 비밀번호 변경 권고.
 
 **H. Test plan rigor**:
+
 1. **HMAC 단위 테스트**: 공식 test vector 부재 → **fixture-capture 절차**로 전환.
 2. **Integration test**: CI에서 자격증명 주입 어떻게? `credentials-required` 마커로 분리, CI skip, 로컬/staging 실행 전략 필요.
 3. **보안 회귀 테스트**: `git ls-files`는 git repo 초기화 후에만 동작. Step-0에 `git init` 포함 필요.
@@ -121,8 +125,8 @@ Plan의 D3과 Q3가 운영 환경을 미결로 남겨두면서, 동시에 섹션
 
 ## References
 
-- `/Users/hoshin/workspace/ProjectMarketing/zebra-brothers-ae/.env` — 실제 자격증명 평문 저장 확인
-- `/Users/hoshin/workspace/ProjectMarketing/zebra-brothers-ae/` — `.gitignore` 부재, git repo 미초기화 확인
+- `/Users/hoshin/workspace/ProjectMarketing/naver-ads-mcp/.env` — 실제 자격증명 평문 저장 확인
+- `/Users/hoshin/workspace/ProjectMarketing/naver-ads-mcp/` — `.gitignore` 부재, git repo 미초기화 확인
 - `/Users/hoshin/workspace/ProjectMarketing/zebra-brothers-ax/CLAUDE.md` — HelloMax 6개 광고주 컨텍스트 (sister project)
 - Plan 섹션 4 — 파일 구조 (`.gitignore` 존재 가정)
 - Plan 섹션 6 — Q1-Q4 (광고 상품 유형 질문 누락)
