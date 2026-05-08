@@ -1,0 +1,197 @@
+{
+  "title": "Naver Search Ad MCP Server (helloMAX Report Automation)",
+  "description": "MCP server that automates collection of Naver Search Ad data and generates the helloMAX Report Excel (10-sheet template) automatically. Excludes 'brand search' sheet (no API support). Uses HMAC-signed Naver Search Ad API with credentials from .env (CUSTOMER_ID, ACCESS_LICENSE, SECRET_KEY).",
+  "language": "TypeScript",
+  "runtime": "Node.js 20+",
+  "constraints": [
+    "TDD mode: tests first, then implementation",
+    "MCP server using @modelcontextprotocol/sdk (stdio transport)",
+    "Credentials from .env via dotenv (no hardcoded secrets)",
+    "HMAC-SHA256 signing per Naver Search Ad API spec (timestamp ms . method . URI)",
+    "Brand search sheet (sheet 6) is intentionally excluded (API does not support area-level performance)",
+    "Output: 9 of 10 sheets generated (skip 'brand search 성과')",
+    "Korean column names preserved per template form"
+  ],
+  "stories": [
+    {
+      "id": "US-001",
+      "title": "Project scaffolding (TypeScript + MCP SDK + Vitest)",
+      "priority": 1,
+      "passes": true,
+      "acceptanceCriteria": [
+        "package.json exists with: typescript@^5, @modelcontextprotocol/sdk, dotenv, exceljs (or xlsx), vitest, tsx, @types/node",
+        "tsconfig.json compiles strict ES2022, NodeNext module, src/ -> dist/",
+        ".gitignore includes .env, node_modules/, dist/, .omc/state/",
+        "git repo initialized at project root with first 'chore: bootstrap' commit",
+        "vitest.config.ts present with credentials-required marker test skip pattern",
+        "npm install completes without errors",
+        "npm run build produces dist/ output",
+        "npm test runs (zero tests is OK at this point)"
+      ]
+    },
+    {
+      "id": "US-002",
+      "title": "Credential loader (ICredentialLoader + EnvCredentialLoader)",
+      "priority": 2,
+      "passes": true,
+      "acceptanceCriteria": [
+        "src/config/credentials.ts exports ICredentialLoader interface with load(): NaverAdsCredentials",
+        "EnvCredentialLoader reads NAVER_ADS_CUSTOMER_ID, NAVER_ADS_ACCESS_LICENSE, NAVER_ADS_SECRET_KEY (handles trailing space in key names)",
+        "Throws descriptive error when any of the 3 keys is missing (without echoing values)",
+        "Has [enumerable: false] on secret fields so console.log(credentials) does not leak",
+        "Unit tests cover: all-present, missing-one, missing-all, trailing-space-in-key",
+        "tests/credentials.test.ts passes via npm test"
+      ]
+    },
+    {
+      "id": "US-003",
+      "title": "HMAC signer (Naver spec exact)",
+      "priority": 3,
+      "passes": true,
+      "acceptanceCriteria": [
+        "src/api/signer.ts exports sign({timestamp, method, uri, secretKey}) -> base64 string",
+        "Implements HMAC-SHA256 over `${timestamp}.${method}.${uri}` (URI is path only, no query string)",
+        "buildHeaders({customerId, accessLicense, secretKey, method, uri}) returns headers object: X-Timestamp, X-API-KEY, X-Customer, X-Signature",
+        "Unit tests use fixture-capture pattern: given fixed inputs, output is deterministic",
+        "Test verifies signature for known input matches deterministic output (golden test)",
+        "tests/signer.test.ts has at least 4 cases: GET request, POST request, query-string-stripping, timestamp-ms-format"
+      ]
+    },
+    {
+      "id": "US-004",
+      "title": "Naver Search Ad API client (HTTP + retry)",
+      "priority": 4,
+      "passes": true,
+      "acceptanceCriteria": [
+        "src/api/client.ts exports NaverAdsClient class with constructor({baseUrl, credentials, signer})",
+        "client.get<T>(path, query?) and client.post<T>(path, body) methods",
+        "Builds X-Timestamp / X-API-KEY / X-Customer / X-Signature headers per request via signer",
+        "Retry semantics: 401 -> resign timestamp + retry once; 5xx -> exponential backoff 3 attempts; 429 -> respect Retry-After header",
+        "Unit tests with mocked fetch (vi.mock or msw): success path, 401 retry, 5xx backoff, 429 Retry-After",
+        "tests/client.test.ts passes"
+      ]
+    },
+    {
+      "id": "US-005",
+      "title": "StatReport async download flow (POST -> poll -> GZ -> TSV)",
+      "priority": 5,
+      "passes": true,
+      "acceptanceCriteria": [
+        "src/api/stat-reports.ts exports requestStatReport({reportTp, statDt}) -> Promise<{rows: object[]}>",
+        "Does POST /stat-reports, polls GET /stat-reports/{reportJobId} until status == 'BUILT'",
+        "Downloads downloadUrl, gunzips, parses TSV into objects (header row required)",
+        "Polling uses exponential backoff with 30s max interval, 10min total timeout",
+        "Supports reportTp values: AD, AD_DETAIL, AD_CONVERSION, AD_CONVERSION_DETAIL, EXPKEYWORD, SHOPPINGKEYWORD_DETAIL, SHOPPINGKEYWORD_CONVERSION_DETAIL, SHOPPINGBRANDPRODUCT, SHOPPINGBRANDPRODUCT_CONVERSION, BRND_CONTRACT (constants exported)",
+        "Unit test mocks the 3-step flow (request -> poll -> download) with fixture data",
+        "tests/stat-reports.test.ts passes"
+      ]
+    },
+    {
+      "id": "US-006",
+      "title": "Metadata API (campaigns, ad groups, keywords, products)",
+      "priority": 6,
+      "passes": true,
+      "acceptanceCriteria": [
+        "src/api/metadata.ts exports getCampaigns(), getAdGroups(campaignId?), getKeywords(adGroupId?), getProducts()",
+        "Each fetches /ncc/campaigns, /ncc/adgroups, /ncc/keywords, /ncc/product-groups respectively",
+        "Returns typed objects matching Naver API response shapes (defined in src/api/types.ts)",
+        "Unit tests verify request URL, query params, and response parsing with mocked fetch",
+        "tests/metadata.test.ts passes"
+      ]
+    },
+    {
+      "id": "US-007",
+      "title": "RAW data builders (4 RAW sheets: 일별/키워드/검색어/소재)",
+      "priority": 7,
+      "passes": true,
+      "acceptanceCriteria": [
+        "src/raw/daily.ts buildDailyRaw({startDate, endDate}) returns 17-column rows (월별/주차/날짜/매체/캠페인유형/캠페인/광고그룹/디바이스/광고비/노출수/클릭수/구매완료/회원가입/신청완료/기타전환/전환매출액/평균노출순위)",
+        "src/raw/keyword.ts buildKeywordRaw({startDate, endDate}) returns 18-column rows (위 + 키워드)",
+        "src/raw/search-term.ts buildSearchTermRaw() returns 18-column rows (검색어)",
+        "src/raw/material.ts buildMaterialRaw() returns 20-column rows (소재ID/상품ID/상품명 추가)",
+        "월별/주차 columns are auto-derived from 날짜 via deterministic helper (utility tested separately)",
+        "VAT processing: salesAmt is divided by 1.1 if Naver returns VAT-included values (configurable), labeled '광고비 (VAT-)'",
+        "4 conversion columns (구매완료/회원가입/신청완료/기타전환) populated from AD_CONVERSION reportTp's convTpCd breakdown",
+        "Unit tests use fixture API responses; no live API call in tests",
+        "tests/raw.test.ts passes for all 4 builders"
+      ]
+    },
+    {
+      "id": "US-008",
+      "title": "Pivot builders (5 display sheets: SUMMARY/매체별/키워드/상품/검색어)",
+      "priority": 8,
+      "passes": true,
+      "acceptanceCriteria": [
+        "src/pivot/summary.ts buildSummary(rawData) returns sheet structure matching SUMMARY layout",
+        "src/pivot/media.ts buildMediaPerformance() with monthly + weekly breakdown",
+        "src/pivot/keyword.ts buildKeywordPerformance() (sorted by 광고비 desc)",
+        "src/pivot/product.ts buildProductPerformance() (쇼핑검색 상품 ID + 상품명)",
+        "src/pivot/search-term.ts buildSearchTermPerformance() (전환 1건 이상 검색어)",
+        "Pivots are pure functions: take RawRow[], return PivotSheet structure",
+        "Computed metrics correct: CTR=clicks/impressions, CPC=cost/clicks, CVR=conv/clicks, CPA=cost/conv (zero-safe division)",
+        "Unit tests with sample fixtures verify computed metrics for known inputs",
+        "tests/pivot.test.ts passes"
+      ]
+    },
+    {
+      "id": "US-009",
+      "title": "Excel writer (10-sheet output, brand search hidden)",
+      "priority": 9,
+      "passes": true,
+      "acceptanceCriteria": [
+        "src/excel/writer.ts exports writeReport({outputPath, rawData, pivotData})",
+        "Generates xlsx with 10 sheets in correct order: SUMMARY/매체별 성과/키워드 성과/상품 성과/검색어 성과/브랜드검색 성과/소재RAW/검색어RAW/일별RAW/키워드RAW",
+        "Brand search 성과 sheet exists but kept hidden (sheetState='hidden') with template structure (수기 입력 영역 placeholder)",
+        "Sheets with empty RAW data have hidden state (visibility toggled by data presence)",
+        "Korean column headers exactly match template form",
+        "Number formatting: 광고비 with thousand separators, CTR/CVR as percentage, etc.",
+        "Generated file opens in Excel/openpyxl without warnings (other than known unsupported extensions)",
+        "Unit test loads generated xlsx, asserts sheet names, visibility states, and at least one data row matches input"
+      ]
+    },
+    {
+      "id": "US-010",
+      "title": "MCP server (tools: list, fetch_raw, generate_report)",
+      "priority": 10,
+      "passes": true,
+      "acceptanceCriteria": [
+        "src/mcp/server.ts exports default MCP server using @modelcontextprotocol/sdk stdio transport",
+        "Tool 1: list_report_types -> returns supported reportTp constants and their descriptions",
+        "Tool 2: fetch_raw_data -> args: {reportTp, startDate, endDate}, returns {rows, count, reportTp}",
+        "Tool 3: generate_report -> args: {startDate, endDate, outputPath}, returns {path, sheetNames, rowCount}",
+        "Tool 4: validate_credentials -> calls a lightweight read endpoint (e.g., /billing/bizmoney) and returns {ok: true} or descriptive error (no secret leakage)",
+        "src/cli.ts is thin wrapper that boots the MCP server when run via `npx tsx src/cli.ts` or post-build via `node dist/cli.js`",
+        "package.json has bin entry pointing to dist/cli.js",
+        "Tools are registered with proper Zod schemas for input validation",
+        "Unit test: server boots, lists tools (4 tools registered), tool schemas validate"
+      ]
+    },
+    {
+      "id": "US-011",
+      "title": "End-to-end smoke test (mocked Naver API, real MCP transport)",
+      "priority": 11,
+      "passes": true,
+      "acceptanceCriteria": [
+        "tests/e2e.test.ts spins up MCP server with mocked Naver API responses",
+        "Calls generate_report tool via MCP client, verifies output xlsx is created",
+        "Output xlsx has 10 sheets with correct visibility (5 visible, 5 hidden in current state)",
+        "Test does NOT require real Naver credentials (uses fixture responses)",
+        "credentials-required marker exists for separate live test (skipped in CI)",
+        "tests/e2e.test.ts passes"
+      ]
+    },
+    {
+      "id": "US-012",
+      "title": "Documentation (README + .env.example + run instructions)",
+      "priority": 12,
+      "passes": true,
+      "acceptanceCriteria": [
+        "README.md explains: project purpose, .env requirements, npm scripts, MCP tool list, how to register the MCP server in Claude Code",
+        ".env.example contains only NAVER_ADS_CUSTOMER_ID, NAVER_ADS_ACCESS_LICENSE, NAVER_ADS_SECRET_KEY (no deprecated ID/PW)",
+        "README mentions that brand search 성과 sheet is intentionally excluded with reference to GitHub Issue #1072 official answer",
+        "README includes API key issuance steps (네이버 검색광고 센터 → 도구 → API 사용관리)",
+        "README includes section on key rotation procedure"
+      ]
+    }
+  ]
+}

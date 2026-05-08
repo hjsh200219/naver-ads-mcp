@@ -1,0 +1,438 @@
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js";
+import { z } from "zod";
+
+import { EnvCredentialLoader } from "../config/credentials.js";
+import type { ICredentialLoader } from "../config/credentials.js";
+import { NaverAdsClient, NaverAdsApiError } from "../api/client.js";
+import type { INaverAdsClient } from "../api/types.js";
+import { REPORT_TYPES, requestStatReport } from "../api/stat-reports.js";
+import {
+  getCampaigns,
+  getAdGroups,
+  getKeywords,
+  getProducts,
+} from "../api/metadata.js";
+import { buildDailyRaw } from "../raw/daily.js";
+import { buildKeywordRaw } from "../raw/keyword.js";
+import { buildSearchTermRaw } from "../raw/search-term.js";
+import { buildMaterialRaw } from "../raw/material.js";
+import { buildSummary } from "../pivot/summary.js";
+import { buildMediaPerformance } from "../pivot/media.js";
+import { buildKeywordPerformance } from "../pivot/keyword.js";
+import { buildProductPerformance } from "../pivot/product.js";
+import { buildSearchTermPerformance } from "../pivot/search-term.js";
+import { writeReport } from "../excel/writer.js";
+
+export interface ServerDeps {
+  credentialLoader?: ICredentialLoader;
+  client?: INaverAdsClient;
+  fetch?: typeof globalThis.fetch;
+  baseUrl?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Argument schemas
+// ---------------------------------------------------------------------------
+
+const FetchRawDataSchema = z.object({
+  reportTp: z.enum(REPORT_TYPES),
+  startDate: z.string().regex(/^\d{8}$/),
+  endDate: z.string().regex(/^\d{8}$/),
+});
+
+const GenerateReportSchema = z.object({
+  startDate: z.string().regex(/^\d{8}$/),
+  endDate: z.string().regex(/^\d{8}$/),
+  outputPath: z.string(),
+});
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Enumerate all YYYYMMDD dates from startDate..endDate inclusive (UTC). */
+function enumerateDates(startDate: string, endDate: string): string[] {
+  const toUtcMs = (s: string) =>
+    Date.UTC(
+      Number(s.slice(0, 4)),
+      Number(s.slice(4, 6)) - 1,
+      Number(s.slice(6, 8))
+    );
+  const dates: string[] = [];
+  for (let cursor = toUtcMs(startDate), endMs = toUtcMs(endDate); cursor <= endMs; cursor += 86_400_000) {
+    const d = new Date(cursor);
+    const yyyy = String(d.getUTCFullYear());
+    const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const dd = String(d.getUTCDate()).padStart(2, "0");
+    dates.push(`${yyyy}${mm}${dd}`);
+  }
+  return dates;
+}
+
+function toContentText(obj: unknown): { type: "text"; text: string }[] {
+  return [{ type: "text", text: JSON.stringify(obj) }];
+}
+
+/** Reusable JSON Schema fragment for YYYYMMDD date strings used in tool inputSchema. */
+const YYYYMMDD = { type: "string" as const, pattern: "^\\d{8}$" };
+
+// ---------------------------------------------------------------------------
+// Factory
+// ---------------------------------------------------------------------------
+
+export function createServer(deps: ServerDeps = {}): {
+  server: Server;
+  tools: {
+    validate_credentials: () => Promise<unknown>;
+    list_report_types: () => unknown;
+    fetch_raw_data: (args: z.infer<typeof FetchRawDataSchema>) => Promise<unknown>;
+    generate_report: (args: z.infer<typeof GenerateReportSchema>) => Promise<unknown>;
+  };
+} {
+  const BASE_URL = deps.baseUrl ?? "https://api.searchad.naver.com";
+
+  // Resolve client lazily so that missing env vars only fail at call time.
+  let _client: INaverAdsClient | undefined = deps.client;
+  const getClient = (): INaverAdsClient => {
+    if (_client) return _client;
+    const loader = deps.credentialLoader ?? new EnvCredentialLoader();
+    const credentials = loader.load();
+    _client = new NaverAdsClient({
+      baseUrl: BASE_URL,
+      credentials,
+      fetch: deps.fetch,
+    });
+    return _client;
+  };
+
+  // ---------------------------------------------------------------------------
+  // Tool implementations (exported for tests)
+  // ---------------------------------------------------------------------------
+
+  const tool_validate_credentials = async () => {
+    try {
+      const client = getClient();
+      await client.get("/billing/bizmoney");
+      return { ok: true, message: "Credentials are valid" };
+    } catch (err) {
+      // Classify by status without leaking credential values.
+      if (err instanceof NaverAdsApiError) {
+        if (err.status === 401 || err.status === 403) {
+          return { ok: false, error: `Authentication failed (${err.status})` };
+        }
+        if (err.status >= 500) {
+          return { ok: false, error: `Server unavailable (${err.status})` };
+        }
+        return { ok: false, error: `Request failed (${err.status})` };
+      }
+      return { ok: false, error: "Network or unknown error" };
+    }
+  };
+
+  const tool_list_report_types = () => ({
+    reportTypes: [
+      {
+        name: "AD",
+        description: "광고효과보고서 (캠페인/광고그룹/디바이스 단위 운영성과)",
+        retentionDays: 365,
+      },
+      {
+        name: "AD_DETAIL",
+        description: "광고효과 상세 (키워드 단위)",
+        retentionDays: 180,
+      },
+      {
+        name: "AD_CONVERSION",
+        description: "광고전환보고서",
+        retentionDays: 365,
+      },
+      {
+        name: "AD_CONVERSION_DETAIL",
+        description: "키워드 단위 전환",
+        retentionDays: 45,
+      },
+      {
+        name: "EXPKEYWORD",
+        description: "파워링크 검색어 보고서",
+        retentionDays: 365,
+      },
+      {
+        name: "SHOPPINGKEYWORD_DETAIL",
+        description: "쇼핑검색 키워드 상세",
+        retentionDays: 180,
+      },
+      {
+        name: "SHOPPINGKEYWORD_CONVERSION_DETAIL",
+        description: "쇼핑검색 키워드 전환 상세",
+        retentionDays: 45,
+      },
+      {
+        name: "SHOPPINGBRANDPRODUCT",
+        description: "쇼핑 브랜드 상품 보고서",
+        retentionDays: 365,
+      },
+      {
+        name: "SHOPPINGBRANDPRODUCT_CONVERSION",
+        description: "쇼핑 브랜드 상품 전환",
+        retentionDays: 365,
+      },
+      {
+        name: "BRND_CONTRACT",
+        description: "브랜드검색 계약 단위 (영역별 미제공)",
+        retentionDays: 120,
+      },
+    ],
+  });
+
+  const tool_fetch_raw_data = async (
+    args: z.infer<typeof FetchRawDataSchema>
+  ) => {
+    const { reportTp, startDate, endDate } = args;
+    const client = getClient();
+    const dates = enumerateDates(startDate, endDate);
+    const allRows: Record<string, string>[] = [];
+    for (const statDt of dates) {
+      const result = await requestStatReport({ client, reportTp, statDt, fetch: deps.fetch });
+      allRows.push(...result.rows);
+    }
+    return {
+      rows: allRows,
+      count: allRows.length,
+      reportTp,
+      startDate,
+      endDate,
+    };
+  };
+
+  const tool_generate_report = async (
+    args: z.infer<typeof GenerateReportSchema>
+  ) => {
+    const { startDate, endDate, outputPath } = args;
+    const client = getClient();
+    const dates = enumerateDates(startDate, endDate);
+
+    // Step 1: fetch metadata in parallel
+    const [campaigns, adGroups, keywords, products] = await Promise.all([
+      getCampaigns(client),
+      getAdGroups(client),
+      getKeywords(client),
+      getProducts(client),
+    ]);
+
+    // Step 2: fetch all report types — each wrapped in try/catch
+    const fetchAll = async (
+      reportTp: (typeof REPORT_TYPES)[number]
+    ): Promise<Record<string, string>[]> => {
+      try {
+        const rows: Record<string, string>[] = [];
+        for (const statDt of dates) {
+          const result = await requestStatReport({ client, reportTp, statDt, fetch: deps.fetch });
+          rows.push(...result.rows);
+        }
+        return rows;
+      } catch {
+        return [];
+      }
+    };
+
+    const [
+      adRows,
+      adConvRows,
+      adDetailRows,
+      adConvDetailRows,
+      expkwRows,
+      shopBrandRows,
+      shopBrandConvRows,
+    ] = await Promise.all([
+      fetchAll("AD"),
+      fetchAll("AD_CONVERSION"),
+      fetchAll("AD_DETAIL"),
+      fetchAll("AD_CONVERSION_DETAIL"),
+      fetchAll("EXPKEYWORD"),
+      fetchAll("SHOPPINGBRANDPRODUCT"),
+      fetchAll("SHOPPINGBRANDPRODUCT_CONVERSION"),
+    ]);
+
+    // Step 3: build raw sheets
+    const rawDaily = await buildDailyRaw({
+      startDate,
+      endDate,
+      fetched: { op: adRows, conv: adConvRows, campaigns, adGroups },
+    });
+
+    const rawKeyword = await buildKeywordRaw({
+      startDate,
+      endDate,
+      fetched: {
+        op: adDetailRows,
+        conv: adConvDetailRows,
+        campaigns,
+        adGroups,
+        keywords,
+      },
+    });
+
+    const rawSearchTerm = await buildSearchTermRaw({
+      startDate,
+      endDate,
+      fetched: { op: expkwRows, conv: [], campaigns, adGroups },
+    });
+
+    const rawMaterial = await buildMaterialRaw({
+      startDate,
+      endDate,
+      fetched: {
+        op: shopBrandRows,
+        conv: shopBrandConvRows,
+        campaigns,
+        adGroups,
+        products,
+      },
+    });
+
+    // Step 4: build pivot sheets
+    const allDaily = [...rawDaily, ...rawKeyword];
+    const pivotSummary = buildSummary(allDaily);
+    const pivotMedia = buildMediaPerformance(allDaily);
+    const pivotKeyword = buildKeywordPerformance(rawKeyword);
+    const pivotProduct = buildProductPerformance(rawMaterial);
+    const pivotSearchTerm = buildSearchTermPerformance(rawSearchTerm);
+
+    // Step 5: write Excel
+    const result = await writeReport({
+      outputPath,
+      data: {
+        rawDaily,
+        rawKeyword,
+        rawSearchTerm,
+        rawMaterial,
+        pivotSummary,
+        pivotMedia,
+        pivotKeyword,
+        pivotProduct,
+        pivotSearchTerm,
+      },
+    });
+
+    return result;
+  };
+
+  // ---------------------------------------------------------------------------
+  // MCP server wiring
+  // ---------------------------------------------------------------------------
+
+  const server = new Server(
+    { name: "naver-ads-mcp", version: "0.1.0" },
+    { capabilities: { tools: {} } }
+  );
+
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    tools: [
+      {
+        name: "validate_credentials",
+        description: "Validate Naver Ads API credentials by calling a lightweight endpoint.",
+        inputSchema: { type: "object", properties: {}, required: [] },
+      },
+      {
+        name: "list_report_types",
+        description: "List supported Naver Ads report types with descriptions and retention periods.",
+        inputSchema: { type: "object", properties: {}, required: [] },
+      },
+      {
+        name: "fetch_raw_data",
+        description: "Fetch raw stat report rows for a date range and report type.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            reportTp: {
+              type: "string",
+              enum: REPORT_TYPES as unknown as string[],
+              description: "Report type",
+            },
+            startDate: { ...YYYYMMDD, description: "Start date YYYYMMDD" },
+            endDate: { ...YYYYMMDD, description: "End date YYYYMMDD" },
+          },
+          required: ["reportTp", "startDate", "endDate"],
+        },
+      },
+      {
+        name: "generate_report",
+        description: "Generate a full Excel report (.xlsx) for a date range.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            startDate: { ...YYYYMMDD, description: "Start date YYYYMMDD" },
+            endDate: { ...YYYYMMDD, description: "End date YYYYMMDD" },
+            outputPath: {
+              type: "string",
+              description: "Absolute path for the output .xlsx file",
+            },
+          },
+          required: ["startDate", "endDate", "outputPath"],
+        },
+      },
+    ],
+  }));
+
+  /** Run a tool whose args must pass `schema.safeParse`, formatting Zod errors uniformly. */
+  const runValidated = async <S extends z.ZodTypeAny>(
+    schema: S,
+    rawArgs: unknown,
+    fn: (args: z.infer<S>) => Promise<unknown>
+  ) => {
+    const parsed = schema.safeParse(rawArgs);
+    if (!parsed.success) {
+      return {
+        content: toContentText({
+          error: "Invalid arguments",
+          details: parsed.error.flatten(),
+        }),
+        isError: true,
+      };
+    }
+    return { content: toContentText(await fn(parsed.data)) };
+  };
+
+  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    const { name, arguments: rawArgs } = request.params;
+
+    try {
+      switch (name) {
+        case "validate_credentials":
+          return { content: toContentText(await tool_validate_credentials()) };
+        case "list_report_types":
+          return { content: toContentText(tool_list_report_types()) };
+        case "fetch_raw_data":
+          return runValidated(FetchRawDataSchema, rawArgs, tool_fetch_raw_data);
+        case "generate_report":
+          return runValidated(GenerateReportSchema, rawArgs, tool_generate_report);
+        default:
+          return {
+            content: toContentText({ error: `Unknown tool: ${name}` }),
+            isError: true,
+          };
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return {
+        content: toContentText({ error: message }),
+        isError: true,
+      };
+    }
+  });
+
+  return {
+    server,
+    tools: {
+      validate_credentials: tool_validate_credentials,
+      list_report_types: tool_list_report_types,
+      fetch_raw_data: tool_fetch_raw_data,
+      generate_report: tool_generate_report,
+    },
+  };
+}

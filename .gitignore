@@ -1,0 +1,37 @@
+# Secrets
+.env
+.env.local
+*.key
+*.pem
+
+# Node
+node_modules/
+dist/
+*.log
+.DS_Store
+
+# Test artifacts
+coverage/
+
+# OMC state (local-only)
+.omc/state/
+.omc/notepad.md
+.omc/project-memory.json
+.omc/research/
+.omc/logs/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+
+# Generated reports / data
+data/
+output/
+*.parquet
+report-*.xlsx
+
+# Reference docs (contain actual advertiser data — private to local copy)
+docs/references/
