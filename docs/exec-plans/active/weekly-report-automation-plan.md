@@ -1,9 +1,10 @@
-# helloMAX Weekly Report Automation — Plan v1.3 (FINAL)
+# helloMAX Weekly Report Automation — Plan v1.4 (FINAL)
 
-> 상태: **FINAL v1.3** (v1.2 + 사용자 결정 3건 — O1 택스아이 정리·O2 1인 일정·artifact preview only 채택)
+> 상태: **FINAL v1.4** (v1.3 + 사용자 결정: 이메일 전송은 MCP가 직접, 추가 인프라 개발 0)
 > 작성: 2026-05-08, 갱신: 2026-05-09
 > v1.2 변경점: ZBROS USD 결재 합의 게이트 전부 제거. 비용 모니터링은 visibility 알림만 유지(상한선·승인 절차 없음). Phase 1 GO는 PoC 산출물만 충족하면 진입.
-> v1.3 변경점: (1) O2 dev=1인 결정 → 일정 8.5주 → **12주** fallback + scope 단순화 (2) O1 답: 택스아이 "비완전"은 Naver API 한계(브랜드검색 영역별 미지원), 단순 데이터 표기로 처리 (3) Codex 제안 채택: artifact는 **preview only**, 발송은 EML 파일 export → AE가 메일 클라이언트로 직접 발송. SES 의존 0, send_report_email tool → export_email_draft. artifact↔MCP 콜백 가정 검증 불필요 (Codex 최대 risk 더 약화).
+> v1.3 변경점: (1) O2 dev=1인 결정 → 일정 8.5주 → 약 8주 + scope 단순화 (2) O1 답: 택스아이 "비완전"은 Naver API 한계(브랜드검색 영역별 미지원), 단순 데이터 표기로 처리 (3) artifact는 **preview only** 채택.
+> **v1.4 변경점**: 이메일 전송 방식 결정 — **MCP가 직접 발송** (v1.3 EML export 폐기, v1.2 send_report_email 부활). 단 추가 개발 0 정책 — SES/도메인 인증/DKIM/SPF 모두 미도입, **간단 SMTP**(기존 SMTP 계정 또는 Gmail app password) + nodemailer만 사용. accounts.json에 SMTP 자격증명 추가하여 기존 enumerable:false 패턴 재사용.
 > 입력 자료: docs/references/(사업) 광고운영부서 업무 Workflow 작성*260429.docx, HelloMax*주간리포트*AI코멘트*기획안\_v2.0.docx, hellomax_weekly_comment_sample.html
 > 사용자 제약: **광고주별 대시보드는 Claude Live Artifact로 구현**
 > v0.3 변경점: Observability/Cost/Rollback/Concurrency/Test-data/Training 절 신설, AC 측정 정의 보강, Open Q1·Q3 결정, Phase 3.5 데일리 분리, Principle 3 표현 정정, B Migration에 품질 트리거 추가
@@ -30,26 +31,29 @@
 
 ### Viable Options (3) — A 채택
 
-#### Option A — Live Artifact (preview only) + EML export + MCP 확장 ★ 채택 (v1.3)
+#### Option A — Live Artifact (preview only) + MCP 직접 발송 (간단 SMTP) ★ 채택 (v1.4)
 
 `naver-ads-mcp`에 **tool 2개 + resource 2개** 추가 (확장 후 5 tools + 4 resources).
 
-| 종류     | 이름                                                 | 사유                                                |
-| -------- | ---------------------------------------------------- | --------------------------------------------------- |
-| Tool     | `prepare_weekly_dashboard(client, week, revisions?)` | compute action (artifact + EML draft 페이로드 생성) |
-| Tool     | `export_email_draft(payload_hash)` (v1.3 변경)       | EML 파일을 로컬 디스크에 저장 (광고주 직접 발송 X)  |
-| Resource | `naver-ads://client-mappings`                        | read-only metadata                                  |
-| Resource | `naver-ads://history/{client}`                       | read-only audit log                                 |
+| 종류     | 이름                                                 | 사유                                           |
+| -------- | ---------------------------------------------------- | ---------------------------------------------- |
+| Tool     | `prepare_weekly_dashboard(client, week, revisions?)` | compute action (artifact + email payload 생성) |
+| Tool     | `send_report_email(payload_hash, confirm)` (v1.4)    | MCP가 SMTP로 직접 발송 + history append        |
+| Resource | `naver-ads://client-mappings`                        | read-only metadata                             |
+| Resource | `naver-ads://history/{client}`                       | read-only audit log                            |
 
-흐름 (v1.3): AE → `prepare_weekly_dashboard` → MCP가 KPI 사전계산 + Anthropic → JSON+payload_hash+artifact HTML → Claude **artifact는 preview only로 렌더** → AE 자연어 수정(default) 또는 inline 편집(opt-in) → "발송 준비해줘" → `export_email_draft(hash)` → MCP가 EML 파일을 `~/.naver-ads-mcp/drafts/{client}/{week}.eml`에 저장 + history JSONL append → **AE가 Finder/Spotlight에서 EML 파일 열어 Gmail/Outlook으로 직접 발송**.
+흐름 (v1.4): AE → `prepare_weekly_dashboard` → MCP가 KPI 사전계산 + Anthropic → JSON+payload_hash+artifact HTML → Claude **artifact는 preview only로 렌더** → AE 자연어 수정(default) 또는 inline 편집(opt-in) → "발송해" → `send_report_email(hash, confirm=true)` → MCP가 hash 검증 + lock 획득 + **간단 SMTP**(nodemailer)로 직접 발송 + history JSONL append.
 
-### v1.3에서 단순화된 것
+### v1.4에서 결정된 것 (추가 개발 0 정책)
 
-- ❌ SES/SMTP 도메인 인증·DKIM/SPF 부담 → 0 (서버에서 광고주에게 직접 안 보냄)
-- ❌ artifact↔MCP 콜백 가정 → 검증 불필요 (artifact는 시각화만)
-- ❌ Codex 최대 risk(외부 LLM 전송) — 광고주 PII는 여전히 Anthropic으로 가지만, 발송 자체는 AE 메일 클라이언트라 도메인 신뢰도 손상 risk·서버 분실 시 자동 발송 risk 모두 0
-- ❌ 발송 후 5분 status 재확인 → 불필요 (메일 클라이언트가 처리)
-- ⊕ 1인 개발에 적합: send/SES/도메인 인증 모듈이 통째로 빠져 4-5주 절감
+- ✅ MCP가 직접 발송 (v1.2 모델 부활) — AE가 메일 클라이언트 거치는 마찰 제거
+- ✅ artifact는 preview only (v1.3 유지) — MCP↔artifact 콜백 가정 없음. AE 자연어 편집이 default
+- **간단 SMTP만 사용**: nodemailer + 기존 SMTP 계정(Gmail app password / hellomax 자체 SMTP / SendGrid free tier 등 1개)
+  - ❌ AWS SES 도입 안 함 (도메인 인증·DKIM/SPF·sandbox 절차 = 추가 개발)
+  - ❌ 다중 채널·fallback 채널 로직 없음
+  - ❌ 발송 후 5분 status 재확인·bounce 구독 없음 (간단 try/catch + Slack 알림만)
+- accounts.json에 SMTP 자격증명 1개 추가 (`smtp` 키, 기존 `enumerable:false` 패턴 재사용)
+- 1인 개발 적합: send 모듈 = nodemailer 한 줄 호출 + 에러 핸들링. ~50줄 이하
 
 #### Option B — 풀스택 SaaS (v2.0 docs)
 
@@ -61,49 +65,50 @@
 
 ---
 
-## Architecture (Option A v1.3)
+## Architecture (Option A v1.4)
 
 ```
 ┌─────────────────────────────────────────────────────────┐
 │ AE (Claude Desktop)                                     │
 │   "비셰프 4월 4주차 리포트" → "ROAS 톤 부드럽게"          │
-│   → "EML로 빼줘" → Finder에서 .eml 더블클릭 → Gmail 발송│
+│   → "발송해" → MCP가 SMTP로 직접 발송                    │
 └──────────────────┬──────────────────────────────────────┘
                    │ MCP tool/resource
                    ▼
 ┌─────────────────────────────────────────────────────────┐
-│ naver-ads-mcp (확장, v1.3 단순화)                       │
+│ naver-ads-mcp (확장, v1.4)                              │
 │  L1 mcp/server.ts                                       │
 │   Tools     • prepare_weekly_dashboard       [NEW]      │
-│             • export_email_draft (v1.3 변경)  [NEW]     │
+│             • send_report_email (v1.4)        [NEW]     │
 │             • validate_credentials,                     │
 │               fetch_raw_data, generate_report           │
 │   Resources • naver-ads://report-types, accounts        │
 │             • naver-ads://client-mappings    [NEW]      │
 │             • naver-ads://history/{client}   [NEW]      │
 │                                                          │
-│  L1 runtime helpers (file IO + lock + alert)            │
+│  L1 runtime helpers (file IO + lock + alert + send)     │
 │   • src/runtime/history.ts          [NEW] atomic append │
-│   • src/runtime/eml-export.ts (v1.3) [NEW] EML 파일 빌더│
+│   • src/runtime/email-send.ts (v1.4) [NEW] nodemailer   │
 │   • src/runtime/lock.ts             [NEW] file-based    │
 │   • src/runtime/alert.ts            [NEW] Slack webhook │
 │   • src/runtime/log.ts              [NEW] structured    │
-│   ❌ src/runtime/email-send.ts (v1.2 → v1.3 제거)       │
 │                                                          │
 │  L2 services (no file IO)                               │
 │   • src/parser/excel-template.ts    [NEW] 3-step parse  │
 │   • src/parser/precompute-kpi.ts    [NEW] delta/units   │
 │   • src/analyzer/ai-comment.ts      [NEW] prompt build  │
 │   • src/dashboard/artifact-html.ts  [NEW] HTML 1-file   │
+│   • src/email/builder.ts (v1.4)     [NEW] HTML→email    │
 │                                                          │
 │  L3 API                                                 │
 │   • src/api/anthropic.ts            [NEW] Claude wrapper│
-│   ❌ AWS SDK SES (v1.2 → v1.3 제거)                     │
+│   ❌ AWS SDK SES — 미도입 (추가 개발 0 정책)            │
 │                                                          │
 │  L4 config                                              │
-│   • src/config/credentials.ts       (Anthropic 추가,    │
-│                                       enumerable:false) │
+│   • src/config/credentials.ts       (Anthropic + SMTP   │
+│                                       추가, enumerable:false) │
 │   • src/config/client-mappings.json [NEW]               │
+│   • accounts.json: smtp 키 추가 (host/port/user/pass)   │
 │                                                          │
 │  L5 types: src/parser/types.ts [NEW]                    │
 └─────────────────────────────────────────────────────────┘
@@ -111,19 +116,20 @@
 
 ### Layer-rules 정합성
 
-| Module                             | Layer | 의존 OK                                     | 의존 금지       |
-| ---------------------------------- | ----- | ------------------------------------------- | --------------- |
-| `src/parser/excel-template.ts`     | L2    | exceljs, L3, L4, L5                         | L1, file IO     |
-| `src/parser/precompute-kpi.ts`     | L2    | L5 types                                    | L1, L3, file IO |
-| `src/analyzer/ai-comment.ts`       | L2    | L3 anthropic, L5 types                      | L1, file IO     |
-| `src/dashboard/artifact-html.ts`   | L2    | L5 types                                    | L1, L3, L4      |
-| `src/runtime/history.ts`           | L1    | node:fs, L2 types, L1 lock                  | — (L1 leaf)     |
-| `src/runtime/eml-export.ts` (v1.3) | L1    | node:fs, L2 dashboard (HTML→EML)            | —               |
-| `src/runtime/lock.ts`              | L1    | node:fs (proper-lockfile)                   | —               |
-| `src/runtime/alert.ts`             | L1    | fetch (Slack webhook)                       | —               |
-| `src/runtime/log.ts`               | L1    | (no deps)                                   | —               |
-| `src/api/anthropic.ts`             | L3    | @anthropic-ai/sdk, L4 credentials, L5 types | L1, L2          |
-| `src/config/client-mappings.json`  | L4    | — (data only)                               | —               |
+| Module                             | Layer | 의존 OK                                      | 의존 금지       |
+| ---------------------------------- | ----- | -------------------------------------------- | --------------- |
+| `src/parser/excel-template.ts`     | L2    | exceljs, L3, L4, L5                          | L1, file IO     |
+| `src/parser/precompute-kpi.ts`     | L2    | L5 types                                     | L1, L3, file IO |
+| `src/analyzer/ai-comment.ts`       | L2    | L3 anthropic, L5 types                       | L1, file IO     |
+| `src/dashboard/artifact-html.ts`   | L2    | L5 types                                     | L1, L3, L4      |
+| `src/runtime/history.ts`           | L1    | node:fs, L2 types, L1 lock                   | — (L1 leaf)     |
+| `src/runtime/email-send.ts` (v1.4) | L1    | nodemailer, L2 email/builder, L4 credentials | —               |
+| `src/email/builder.ts` (v1.4)      | L2    | L2 dashboard (HTML 본문), L5 types           | L1, L3, L4      |
+| `src/runtime/lock.ts`              | L1    | node:fs (proper-lockfile)                    | —               |
+| `src/runtime/alert.ts`             | L1    | fetch (Slack webhook)                        | —               |
+| `src/runtime/log.ts`               | L1    | (no deps)                                    | —               |
+| `src/api/anthropic.ts`             | L3    | @anthropic-ai/sdk, L4 credentials, L5 types  | L1, L2          |
+| `src/config/client-mappings.json`  | L4    | — (data only)                                | —               |
 
 Phase 0 산출물: `docs/design-docs/layer-rules.md` 업데이트 + `.eslintrc` `import/no-restricted-paths` zone 추가 + `npm run lint` 0 violations.
 
@@ -131,14 +137,14 @@ Phase 0 산출물: `docs/design-docs/layer-rules.md` 업데이트 + `.eslintrc` 
 
 ## 자동화 우선순위 매핑
 
-| #   | Step                   | 워크플로우 priority | Phase | 산출물                                              |
-| --- | ---------------------- | ------------------- | ----- | --------------------------------------------------- |
-| 1   | 1-2-① 주간 데이터 취합 | 高                  | 1     | parser/excel-template + Naver API combiner          |
-| 2   | 1-2-② Weekly Report    | 高                  | 2     | analyzer + dashboard/artifact-html                  |
-| 6   | 1-2-④ 광고주 이메일    | 中                  | 3     | runtime/eml-export (AE 메일 클라이언트로 직접 발송) |
-| 3   | 1-1-① 데일리 퍼포먼스  | 高                  | 3.5   | `prepare_daily_dashboard`                           |
-| 4   | 1-1-③ 데일리 액션      | 高                  | 3.5   | analyzer 재사용                                     |
-| 5   | 1-1-④ 액션 기록·슬랙   | 中                  | 3.5   | history + alert                                     |
+| #   | Step                   | 워크플로우 priority | Phase | 산출물                                                   |
+| --- | ---------------------- | ------------------- | ----- | -------------------------------------------------------- |
+| 1   | 1-2-① 주간 데이터 취합 | 高                  | 1     | parser/excel-template + Naver API combiner               |
+| 2   | 1-2-② Weekly Report    | 高                  | 2     | analyzer + dashboard/artifact-html                       |
+| 6   | 1-2-④ 광고주 이메일    | 中                  | 3     | runtime/email-send + email/builder (간단 SMTP 직접 발송) |
+| 3   | 1-1-① 데일리 퍼포먼스  | 高                  | 3.5   | `prepare_daily_dashboard`                                |
+| 4   | 1-1-③ 데일리 액션      | 高                  | 3.5   | analyzer 재사용                                          |
+| 5   | 1-1-④ 액션 기록·슬랙   | 中                  | 3.5   | history + alert                                          |
 
 신규 온보딩 Part 2 (#7, #8) — out of scope, v2.
 
@@ -153,11 +159,11 @@ Phase 0 산출물: `docs/design-docs/layer-rules.md` 업데이트 + `.eslintrc` 
   - artifact 토큰/렌더 budget 측정 (Sonnet 4.6 200K context 기준)
   - 자연어 편집 vs JSON copy 라운드트립 vs payload_hash UX 비교 → **default 결정**
   - 한계 초과 시 fallback: KPI를 `naver-ads://weekly/{client}/{week}` resource 분리
-- [ ] **PoC 2 (v1.3 단순화)**: EML export 검증
-  - RFC 5322 EML 파일 빌드 + 첨부 (원본 엑셀)
-  - Mail.app·Outlook·Gmail import 검증 (각 도구에서 정상 표시·발송 가능)
-  - 광고주에게 보낼 때 from·reply-to 헤더 처리 (AE 본인 주소)
-  - SES/Gmail SMTP 옵션 비교는 v1.3에서 폐기 (AE 직접 발송이 default)
+- [ ] **PoC 2 (v1.4)**: SMTP 발송 검증
+  - nodemailer + accounts.json `smtp` 키 (Gmail app password / hellomax 자체 SMTP / SendGrid free 등 1개) 으로 발송 성공
+  - HTML 본문 + 원본 엑셀 첨부 정상 수신 (qa inbox)
+  - from·reply-to 헤더 = SMTP 계정 주소 (도메인 인증 없음)
+  - 추가 채널 비교 안 함 (간단 SMTP 1개로 결정)
 - [ ] **PoC 3**: Cost visibility 추정 (한도·결재 없음)
   - 주간: 6 광고주 × 4주 × 평균 재호출 1.5회 = 월 36 호출
   - 데일리(Phase 3.5): 6 광고주 × 5 영업일 × 4주 = 월 120 호출
@@ -210,18 +216,19 @@ Phase 0 산출물: `docs/design-docs/layer-rules.md` 업데이트 + `.eslintrc` 
 
 **완료 기준**: 비셰프·택스아이 실데이터로 artifact 1회 정상 렌더 + AE 1명 사용 후 PR 승인 + hallucination guard 6/6 fixture 95% 이상 + 신규 22+ tests.
 
-### Phase 3 — EML 파일 export + 인프라 (0.5주, v1.3 단순화)
+### Phase 3 — 이메일 발송 + 인프라 (1주, v1.4 간단 SMTP)
 
-- [ ] `src/runtime/eml-export.ts` (v1.3) — artifact JSON → RFC 5322 EML 빌더 (HTML 본문 + 원본 엑셀 첨부 + To/Cc/Subject 헤더)
+- [ ] `src/email/builder.ts` (v1.4) — artifact JSON → HTML 본문 + 원본 엑셀 첨부 빌드 (L2)
+- [ ] `src/runtime/email-send.ts` (v1.4) — **nodemailer + accounts.json `smtp` 키**로 SMTP 직접 발송 (~50 LOC). 추가 SES/도메인 인증 도입 안 함
 - [ ] `src/runtime/lock.ts` — `(client, week)` 단위 file lock (proper-lockfile)
-- [ ] `src/runtime/history.ts` — atomic append (write temp + rename) + JSONL 스키마. 발송 시점이 아니라 **EML export 시점** 기록(status=draft_exported)
+- [ ] `src/runtime/history.ts` — atomic append (write temp + rename) + JSONL 스키마. 발송 시점 기록 (status=sent / failed)
 - [ ] `src/runtime/alert.ts` — Slack webhook (#hellomax-mcp-alerts)
 - [ ] `src/runtime/log.ts` — 구조화 JSON line (level, request_id, client, week, op, latency_ms)
-- [ ] MCP tool `export_email_draft(payload_hash)` — hash 검증 + lock + EML 파일을 `~/.naver-ads-mcp/drafts/{client}/{week}.eml`로 저장
-- [ ] **Concurrency 테스트**: 같은 (client, week) 동시 export 2건 → 1건만 통과, 1건 lock 거절. 같은 hash 재호출은 idempotent (덮어쓰기)
-- [ ] AE 발송 절차 문서: `open ~/.naver-ads-mcp/drafts/{client}/{week}.eml` → Mail.app/Outlook에서 검토 → 발송
+- [ ] MCP tool `send_report_email(payload_hash, confirm)` — hash 검증 + lock + nodemailer 발송 + history append + 실패 시 Slack 알림
+- [ ] accounts.json 스키마 확장: `smtp: { host, port, secure, user, pass }` (enumerable:false)
+- [ ] **Concurrency 테스트**: 같은 (client, week) 동시 send 2건 → 1건만 통과, 1건 lock 거절. 같은 (client, week) 재발송은 명시적 `--force-resend=true` flag 필요
 
-**완료 기준**: 6 광고주 fixture로 EML 파일 정상 생성 + Mail.app/Gmail import 검증 + history JSONL atomic append + concurrency 테스트 통과 + 신규 12+ tests.
+**완료 기준**: 6 광고주 fixture로 SMTP 테스트 발송 (qa+naver-mcp@zbros.co.kr inbox) + history JSONL atomic append + concurrency 테스트 통과 + 신규 14+ tests.
 
 ### Phase 3.5 — 데일리 자동화 (1주, P3와 병렬 시 0.5주 슬라이스)
 
@@ -239,7 +246,7 @@ Phase 0 산출물: `docs/design-docs/layer-rules.md` 업데이트 + `.eslintrc` 
 ### Phase 4 — AE 파일럿 + 보안 + 교육 (2주)
 
 - [ ] AE 2~3명 실사용 (2주간 6광고주)
-- [ ] **AE 교육 워크숍 1회 (2시간)**: 자연어 편집 cheat sheet 5개 예시 + artifact preview 사용법 + EML 발송 절차 (Mail.app/Outlook/Gmail import)
+- [ ] **AE 교육 워크숍 1회 (2시간)**: 자연어 편집 cheat sheet 5개 예시 + artifact preview 사용법 + 발송 절차 (`send_report_email` 호출 + qa inbox 검증 절차)
 - [ ] **매뉴얼 검증 acceptance**: AE 1명이 매뉴얼만 보고 1광고주 발송 성공
 - [ ] 프롬프트 튜닝 (AE 피드백 5점 척도: 정확성/유용성/톤. 익명 설문, 표본 ≥ 2명, 항목 8개)
 - [ ] hallucination 임계값 95% → 99% 단계 게이트
@@ -247,40 +254,39 @@ Phase 0 산출물: `docs/design-docs/layer-rules.md` 업데이트 + `.eslintrc` 
 - [ ] 운영 매뉴얼 (README.md 추가 섹션)
 - [ ] **머신 분실/AE 교체 runbook** (`docs/SECURITY.md` 보강 + 본 plan 양방향 cross-link)
   - 자격증명 회전 (Naver / Anthropic) — 각 서비스별 콘솔 URL + 절차 (SES 제거됨, v1.3)
-  - history JSONL + drafts/ 백업 정책: **주 1회 1Password Secure Note** (외부 안전 저장소)
+  - history JSONL 백업 정책: **주 1회 1Password Secure Note** (외부 안전 저장소). v1.4부터 drafts/ 디렉토리 없음 (MCP 직접 발송)
   - AE 교체 시 인계 체크리스트 (10항목)
   - **검증자**: ZBROS 내부 보안 1인 + AE 1인 (Open Q2 해소: 내부)
 - [ ] 보안 회귀 자동: `grep -rE "(secretKey|accessLicense|sk-ant-)" ~/.naver-ads-mcp/ logs/` → 0건 (CI script)
 
-**완료 기준**: AE 만족도 평균 4/5 (표본 ≥ 2명, 익명) + EML draft → AE 발송 6/6 성공 + 0 hallucination 인스턴스 + 매뉴얼 검증 통과 + runbook PR merge.
+**완료 기준**: AE 만족도 평균 4/5 (표본 ≥ 2명, 익명) + MCP SMTP 발송 6/6 성공 + 0 hallucination 인스턴스 + 매뉴얼 검증 통과 + runbook PR merge.
 
 ### (Out of scope, v2) Phase 5 — 신규 광고주 온보딩
 
-총 **약 8주 (1인 개발, v1.3 단순화 반영)**. v1.2의 8.5주에서 Phase 3가 1주 → 0.5주로 단축되어 8주.
+총 **약 8.5주 (1인 개발, v1.4)**. Phase 3는 nodemailer 한 줄 호출 + 에러 핸들링 기준 1주.
 
-### 일정 (Gantt, 1인 개발)
+### 일정 (Gantt, 1인 개발 직렬)
 
 ```
-주차    1   2   3   4   5   6   7   8
+주차    1   2   3   4   5   6   7   8   9
 P0  ███
 P1      █████████          (1.5주)
 P2          ████████████████  (2.5주)
-P3                          ████  (0.5주, EML export·인프라)
-P3.5                            ████████  (1주, 데일리)
-P4                                      ████████████████  (2주)
+P3                          ████████  (1주, 간단 SMTP send + 인프라)
+P3.5                                ████████  (1주, 데일리)
+P4                                          ████████████████  (2주)
 ```
 
-**v1.3 단순화 효과**:
+**v1.4 핵심 (추가 개발 0)**:
 
-- Phase 3 EML export는 `email-send.ts` 대비 단순 (RFC 5322 빌더 + 파일 저장만) → 1주 → 0.5주
-- SES 도메인 인증 + DKIM/SPF 관련 작업 0
-- 발송 후 5분 status 재확인·bounce 처리 0
-- artifact↔MCP 콜백 검증 항목 0
+- 간단 SMTP만 사용 (nodemailer + accounts.json smtp 키). SES/도메인 인증/DKIM/SPF/bounce 처리 모두 미도입
+- `email-send.ts` ~50 LOC, `email/builder.ts` ~100 LOC 수준으로 가볍게 유지
+- artifact는 preview only (v1.3 유지) — MCP↔artifact 콜백 검증 항목 0
 
-**1인 risk 완화 (직렬 강제, 병렬 환상 제거)**:
+**1인 risk 완화 (직렬 강제)**:
 
-- Phase 0~4 모두 직렬. v1.2의 P3↔P3.5 0.5주 병렬 슬라이스 가정 폐기 (1인이라 병렬 불가)
-- 일정 슬리피지 발생 시 데일리(Phase 3.5)를 v2로 후퇴 → **6주에 v1.0 ship 가능**(주간 리포트만, 데일리 후속)
+- Phase 0~4 모두 직렬 (병렬 가정 없음)
+- 일정 슬리피지 발생 시 데일리(Phase 3.5)를 v2로 후퇴 → **약 7주에 v1.0 ship 가능**(주간 리포트만, 데일리 후속)
 - 슬리피지 추적: Phase 시작 시 `docs/exec-plans/active/timeline-tracker.md`에 실 일정 기록
 
 ---
@@ -351,7 +357,7 @@ P4                                      █████████████�
 | 0     | resource/config 추가뿐 → `git revert` 안전                                              |
 | 1     | parser regression → 이전 fixture 비교 + revert                                          |
 | 2     | hallucination 사고 → `MCP_DISABLE_PREPARE=1` env flag로 tool OFF, AE 수동 작성 fallback |
-| 3     | EML 빌더 결함 발견 시 → `MCP_DISABLE_EXPORT=1` toggle, AE는 기존 수동 작성으로 복귀     |
+| 3     | SMTP send 결함·인증 실패 시 → `MCP_DISABLE_SEND=1` toggle, AE는 기존 수동 작성으로 복귀 |
 | 3.5   | 데일리 false positive 폭증 → `MCP_DISABLE_DAILY=1`                                      |
 | 4     | runbook 키 회전 실수 → 이전 키 (1Password 보관) 복원                                    |
 
@@ -389,7 +395,7 @@ P4                                      █████████████�
   - artifact 사용법 + payload_hash 의미
   - 발송 절차 (검토 → confirm → 사후 5분 alert 확인)
   - rollback 매뉴얼 (광고주 opt-out 절차)
-  - **[v1.3] 정정 발송 절차**: AE가 보낸 메일 발견 후 hallucination·오타 발견 시 (a) AE가 광고주에 정정 안내 메일 직접 작성·발송 (메일 클라이언트), (b) MCP에서 새 `prepare_weekly_dashboard(..., revisions=...)` 호출 → 새 EML draft export, (c) history JSONL에 `status=corrected` 새 entry append. force-resend flag 불필요 (서버 발송 아님).
+  - **[v1.4] 정정 발송 절차**: 발송 후 hallucination·오타 발견 시 (a) MCP에서 새 `prepare_weekly_dashboard(..., revisions=...)` 호출 → 새 hash, (b) `send_report_email --payload_hash=NEW --confirm=true --force-resend=true` 호출 (광고주에게 정정 메일 발송 — 본문 시작에 "정정 안내" 문구 자동 삽입), (c) history JSONL `status=corrected` entry append.
 - **매뉴얼 검증 acceptance**: AE 1명이 매뉴얼만 보고 1광고주 발송 성공 (전화·도움 0회)
 
 ---
@@ -430,7 +436,7 @@ P4                                      █████████████�
 | 6   | AE 만족도 평균 ≥ 4/5                                                                                             | 익명 설문 표본 ≥ 2명, 8 항목 (정확성/유용성/톤/속도/UX/문서/오류대응/추천)                           |
 | 7   | confidence < 0.7 시 경고                                                                                         | snapshot test (artifact 상단 배지 visible)                                                           |
 | 8   | grep 회귀 자격증명 0건                                                                                           | CI script (자동)                                                                                     |
-| 9   | EML 파일 빌더 검증 (Mail.app/Outlook/Gmail import)                                                               | RFC 5322 syntax 검증 + 첨부 정상 + UTF-8 보존 (수동 검증)                                            |
+| 9   | SMTP 발송 검증 (qa inbox 수신)                                                                                   | nodemailer 호출 성공 + HTML 본문 + 엑셀 첨부 + UTF-8 보존 (자동 + 수동)                              |
 | 10  | layer-rules + ESLint zone                                                                                        | `npm run lint` 0 violations                                                                          |
 | 11  | Phase 4 runbook merge + cross-link                                                                               | SECURITY.md ↔ plan 양방향 링크                                                                       |
 | 12  | **데일리 (Phase 3.5)** 응답 ≤ 60초 + 임계값 검출 100% + Slack 발송                                               | 자동 + 수동                                                                                          |
@@ -446,22 +452,22 @@ P4                                      █████████████�
 
 ## Verification Steps (v0.3)
 
-| #   | 단계                                                                                                               | 도구                              |
-| --- | ------------------------------------------------------------------------------------------------------------------ | --------------------------------- |
-| 0   | **Dry-run mode**: `NAVER_ADS_DRY_RUN=1` env로 자격증명 없이 fixture 기반 호출                                      | mock 검증                         |
-| 1   | `npm test`                                                                                                         | vitest                            |
-| 2   | `npm run typecheck`                                                                                                | tsc 0 errors                      |
-| 3   | `npm run lint` (zone)                                                                                              | ESLint 0 violations               |
-| 4   | `time npm run build && time node dist/index.js --version`                                                          | 부팅 ≤ 2s                         |
-| 5   | `prepare_weekly_dashboard --client=bishef --week=2026-W18 --dry-run` (fixture)                                     | artifact 렌더 ≤ 30s + DOM 검증    |
-| 6   | 자연어 revisions 재호출                                                                                            | 새 hash + artifact diff           |
-| 7   | `export_email_draft --payload_hash=...` → `~/.naver-ads-mcp/drafts/` 확인 + Mail.app 더블클릭 → qa inbox 수동 발송 | EML 정상 표시 + 첨부 + 발송       |
-| 8   | `cat ~/.naver-ads-mcp/history/bishef/2026-W18.jsonl`                                                               | 1 line append + PII 최소화        |
-| 9   | `npm run check:hallucination` (CI script)                                                                          | review_text 숫자 ⊂ 사전계산 ≥ 95% |
-| 10  | `grep -rE "(secretKey\|accessLicense\|sk-ant-)" ~/.naver-ads-mcp/ logs/`                                           | 0건                               |
-| 11  | Concurrency: 2 터미널 동시 send → 1건 통과, 1건 lock 거절                                                          | 수동                              |
-| 12  | EML 파일을 Mail.app/Outlook/Gmail에 import → 정상 표시·발송 가능                                                   | 수동 검증 (Phase 3 산출물)        |
-| 13  | Slack `#hellomax-mcp-alerts`에 dummy event 발송                                                                    | webhook OK                        |
+| #   | 단계                                                                           | 도구                              |
+| --- | ------------------------------------------------------------------------------ | --------------------------------- |
+| 0   | **Dry-run mode**: `NAVER_ADS_DRY_RUN=1` env로 자격증명 없이 fixture 기반 호출  | mock 검증                         |
+| 1   | `npm test`                                                                     | vitest                            |
+| 2   | `npm run typecheck`                                                            | tsc 0 errors                      |
+| 3   | `npm run lint` (zone)                                                          | ESLint 0 violations               |
+| 4   | `time npm run build && time node dist/index.js --version`                      | 부팅 ≤ 2s                         |
+| 5   | `prepare_weekly_dashboard --client=bishef --week=2026-W18 --dry-run` (fixture) | artifact 렌더 ≤ 30s + DOM 검증    |
+| 6   | 자연어 revisions 재호출                                                        | 새 hash + artifact diff           |
+| 7   | `send_report_email --payload_hash=... --confirm=true` → qa inbox 수신 확인     | 자동 발송 + 첨부 + history append |
+| 8   | `cat ~/.naver-ads-mcp/history/bishef/2026-W18.jsonl`                           | 1 line append + PII 최소화        |
+| 9   | `npm run check:hallucination` (CI script)                                      | review_text 숫자 ⊂ 사전계산 ≥ 95% |
+| 10  | `grep -rE "(secretKey\|accessLicense\|sk-ant-)" ~/.naver-ads-mcp/ logs/`       | 0건                               |
+| 11  | Concurrency: 2 터미널 동시 send → 1건 통과, 1건 lock 거절                      | 수동                              |
+| 12  | SMTP 인증 실패 시 Slack 알림 + history `status=failed` 기록                    | 자동 (Phase 3 산출물)             |
+| 13  | Slack `#hellomax-mcp-alerts`에 dummy event 발송                                | webhook OK                        |
 
 ---
 
@@ -497,12 +503,12 @@ P4                                      █████████████�
 
 ## ADR (Final, ralplan 합의 + Codex adversarial + v1.3 사용자 결정)
 
-**Decision**: Option A — Live Artifact **preview only** + EML export + `naver-ads-mcp` 확장 (tool +2 / resource +2 → 5T/4R). **`prepare_weekly_dashboard` + `export_email_draft`** (v1.2 send_report_email 폐기).
+**Decision**: Option A — Live Artifact **preview only** + **MCP 직접 발송 (간단 SMTP)** + `naver-ads-mcp` 확장 (tool +2 / resource +2 → 5T/4R). **`prepare_weekly_dashboard` + `send_report_email`** (v1.4: nodemailer + accounts.json `smtp` 키, SES 미도입).
 
 **Drivers**:
 
 1. Time-to-value — **약 8주 (1인 개발)** 파일럿 ship (v2.0 풀 SaaS 14주 대비 6주 단축)
-2. AE workflow fit — Claude Desktop 사용 중, 자연어 편집 default + EML은 익숙한 Mail.app/Gmail로
+2. AE workflow fit — Claude Desktop 사용 중, 자연어 편집 default + MCP가 직접 발송하므로 메일 클라이언트 마찰 0
 3. Data integrity — 0 hallucination (1차 ship 95%, Phase 4 99%) + 외부 LLM 전송 risk 약화 (서버 자동 발송 0)
 
 **Alternatives considered**:
@@ -526,7 +532,8 @@ P4                                      █████████████�
 - ⊕ MCP 단일 도구로 AE 전환 비용 0
 - ⊕ Codex 최대 risk(외부 LLM 전송) 더 약화 — 발송은 AE 메일 클라이언트
 - ⊕ 광고주 메일 from·reply-to가 AE 본인 주소 → 광고주가 자연스러운 회신 가능
-- ⊖ EML 파일 → AE가 메일 클라이언트로 1단계 더 거침 (자동 발송 안 함)
+- ⊖ MCP 직접 발송 → 자동화 사고 시 광고주에게 직접 도달 (mitigation: hash 검증 + lock + confirm flag + (client,week) 발송 1회 정책)
+- ⊖ 간단 SMTP 사용 시 from 주소가 SMTP 계정 (도메인 인증 없음) — 광고주 입장 신뢰도는 적당, 회신 가능
 - ⊖ 1회용 artifact (영속 UI 없음) — 광고주 자체 history 요구 시 Migration 트리거
 - ⊖ AE 머신이 단일 보안 경계 → Phase 4 runbook 의무화
 - ⊖ 클릭/오픈율 추적 불가 (SES 없음) — Migration 트리거
@@ -543,22 +550,22 @@ P4                                      █████████████�
 
 ## Resolved Questions (v0.4 처리 상태)
 
-| #      | 질문                                                              | v0.4 처리                                                       | 분류                        |
-| ------ | ----------------------------------------------------------------- | --------------------------------------------------------------- | --------------------------- |
-| 1      | JSON copy 라운드트립 UX                                           | 자연어 편집 default (Phase 0 PoC로 검증)                        | **결정**                    |
-| 2      | artifact 페이로드 한계                                            | Phase 0 PoC 측정 + resource fallback                            | **deferred to Phase 0 PoC** |
-| 3      | email 채널 default                                                | **EML 파일 export only** (AE 메일 클라이언트로 직접 발송, v1.3) | **결정** (SES 폐기, v1.3)   |
-| 4      | confidence threshold 0.7                                          | Phase 4 tuning (AE 만족도 < 4/5 시 재산정)                      | **deferred to Phase 4**     |
-| 5      | history 영속 위치                                                 | `naver-ads://history/{client}` resource 추상화                  | **결정**                    |
-| 6      | hallucination 임계값                                              | 95% (1차 ship), 99% (Phase 4)                                   | **결정**                    |
-| 7      | Slack workspace                                                   | ZBROS, `#hellomax-mcp-alerts` + `#hellomax-mcp-sends`           | **결정**                    |
-| 8      | runbook 검증자                                                    | ZBROS 내부 보안 1인 + AE 1인                                    | **결정**                    |
-| 9      | 데일리 임계값 정의                                                | Phase 0 PoC 합의 (ROAS -20% MoM 등 후보)                        | **deferred to Phase 0 PoC** |
-| 10     | B Migration 트리거                                                | 규모/기능/품질 3축 8개 트리거                                   | **결정**                    |
-| 11     | Principle 3 표현                                                  | "Evidenced runs, stateless artifact"로 정정                     | **결정**                    |
-| **12** | ~~ZBROS USD 결재 라인~~ (v1.2 폐기)                               | **사용자 결정: 결제 한도/결재 게이트 제거** (v1.2)              | **결정** (제거)             |
-| **13** | **[NEW v1.1] Codex Q1**: 광고주 NDA에 AI 분석·외부 API 전송 허용? | **사용자 확인: 허용**                                           | **결정**                    |
-| **14** | **[NEW v1.1] Codex Q2**: 운영 Claude seat                         | **Claude Max**                                                  | **결정**                    |
+| #      | 질문                                                              | v0.4 처리                                                                 | 분류                              |
+| ------ | ----------------------------------------------------------------- | ------------------------------------------------------------------------- | --------------------------------- |
+| 1      | JSON copy 라운드트립 UX                                           | 자연어 편집 default (Phase 0 PoC로 검증)                                  | **결정**                          |
+| 2      | artifact 페이로드 한계                                            | Phase 0 PoC 측정 + resource fallback                                      | **deferred to Phase 0 PoC**       |
+| 3      | email 채널 default                                                | **간단 SMTP** (nodemailer + accounts.json `smtp` 키, MCP 직접 발송, v1.4) | **결정** (SES·도메인 인증 미도입) |
+| 4      | confidence threshold 0.7                                          | Phase 4 tuning (AE 만족도 < 4/5 시 재산정)                                | **deferred to Phase 4**           |
+| 5      | history 영속 위치                                                 | `naver-ads://history/{client}` resource 추상화                            | **결정**                          |
+| 6      | hallucination 임계값                                              | 95% (1차 ship), 99% (Phase 4)                                             | **결정**                          |
+| 7      | Slack workspace                                                   | ZBROS, `#hellomax-mcp-alerts` + `#hellomax-mcp-sends`                     | **결정**                          |
+| 8      | runbook 검증자                                                    | ZBROS 내부 보안 1인 + AE 1인                                              | **결정**                          |
+| 9      | 데일리 임계값 정의                                                | Phase 0 PoC 합의 (ROAS -20% MoM 등 후보)                                  | **deferred to Phase 0 PoC**       |
+| 10     | B Migration 트리거                                                | 규모/기능/품질 3축 8개 트리거                                             | **결정**                          |
+| 11     | Principle 3 표현                                                  | "Evidenced runs, stateless artifact"로 정정                               | **결정**                          |
+| **12** | ~~ZBROS USD 결재 라인~~ (v1.2 폐기)                               | **사용자 결정: 결제 한도/결재 게이트 제거** (v1.2)                        | **결정** (제거)                   |
+| **13** | **[NEW v1.1] Codex Q1**: 광고주 NDA에 AI 분석·외부 API 전송 허용? | **사용자 확인: 허용**                                                     | **결정**                          |
+| **14** | **[NEW v1.1] Codex Q2**: 운영 Claude seat                         | **Claude Max**                                                            | **결정**                          |
 
 **요약**: 14건 중 결정 10건 + deferred 4건 (Q2/Q4/Q9/Q12).
 
@@ -566,12 +573,12 @@ P4                                      █████████████�
 
 v1.3 결정으로 v1.2 미해소 3건 모두 처리:
 
-| #   | v1.2 질문                                         | v1.3 결정                                                                                                                            |
-| --- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| O1  | 택스아이 누락 고지 정책                           | **단순 데이터 표기** — artifact 셀 "Naver 미제공" + 합계 표시. 별도 안내 메일·footer 절차 없음 (Naver API 한계는 광고주가 이미 인지) |
-| O2  | Dev 인원 / 일정                                   | **1인** → Phase 3 단순화 + 직렬 강제로 약 8주. 슬리피지 발생 시 데일리(P3.5) v2 후퇴로 6주에 v1.0 ship 가능                          |
-| O3  | Claude Max 한도                                   | Phase 0 PoC #3 측정 후 결정 (deferred). 초과 시 분산 호출 또는 API 키 이중 채널                                                      |
-| —   | Codex 제안 "artifact preview only + markdown/EML" | **채택**. send_report_email tool 폐기, export_email_draft로 단순화. SES/도메인 인증 의존 0                                           |
+| #   | v1.2 질문                                         | v1.3 결정                                                                                                                                                                |
+| --- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| O1  | 택스아이 누락 고지 정책                           | **단순 데이터 표기** — artifact 셀 "Naver 미제공" + 합계 표시. 별도 안내 메일·footer 절차 없음 (Naver API 한계는 광고주가 이미 인지)                                     |
+| O2  | Dev 인원 / 일정                                   | **1인** → Phase 3 단순화 + 직렬 강제로 약 8주. 슬리피지 발생 시 데일리(P3.5) v2 후퇴로 6주에 v1.0 ship 가능                                                              |
+| O3  | Claude Max 한도                                   | Phase 0 PoC #3 측정 후 결정 (deferred). 초과 시 분산 호출 또는 API 키 이중 채널                                                                                          |
+| —   | Codex 제안 "artifact preview only + markdown/EML" | **부분 채택** (v1.4): artifact preview only는 채택, EML export는 v1.3에 적용 후 v1.4에서 사용자 결정으로 폐기 (MCP 직접 발송으로 회귀, 단 SES 미도입 = 추가 개발 0 정책) |
 
 ### v1.3 deferred (Phase 0 PoC에서 확정)
 
