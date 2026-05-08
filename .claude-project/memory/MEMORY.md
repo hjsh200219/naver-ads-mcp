@@ -12,6 +12,8 @@
 - [mcp-resources-vs-tools.md](mcp-resources-vs-tools.md) — read-only 메타데이터는 MCP resource로 (system prompt 토큰 ~15-20% 절감)
 - [mcp-deployment-local-path.md](mcp-deployment-local-path.md) — MCP 배포는 로컬 경로 유지 결정 (npx + GitHub install 거부됨)
 - [eslint-tests-no-inline-disable.md](eslint-tests-no-inline-disable.md) — tests/에서 @typescript-eslint/\* 인라인 disable 금지 (룰 미등록)
+- [weekly-report-automation-plan.md](weekly-report-automation-plan.md) — 주간/데일리 리포트 자동화 + 광고주별 Live Artifact 합의 플랜 v1.1 LOCKED + Phase 0 게이트
+- [anthropic-data-transmission-policy.md](anthropic-data-transmission-policy.md) — 광고주 데이터 외부 LLM 전송 정책 (NDA 허용·PII 최소화·점검 게이트)
 
 ## Reference
 
@@ -22,3 +24,4 @@
 ## Feedback
 
 - [korean-output-style.md](korean-output-style.md) — 사용자 응답 스타일 선호
+- [ralplan-codex-consensus-pattern.md](ralplan-codex-consensus-pattern.md) — ralplan 4 라운드 + Codex adversarial 외부 challenge로 같은-패밀리 합의의 blind spot 보완
