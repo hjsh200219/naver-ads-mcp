@@ -12,25 +12,29 @@ import type { INaverAdsClient } from "../src/api/types.js";
 // ---------------------------------------------------------------------------
 
 const TSV_BY_REPORT_TP: Record<string, string> = {
-  AD: [
-    "statDt\tnccCampaignId\tnccAdgroupId\tpcMblTp\timpCnt\tclkCnt\tsalesAmt\tavgRnk",
-    "20260206\tcmp-1\tag-1\tPC\t1000\t10\t11000\t3.5",
-    "20260206\tcmp-1\tag-1\tMO\t2000\t30\t33000\t1.8",
-  ].join("\n") + "\n",
+  AD:
+    [
+      "statDt\tnccCampaignId\tnccAdgroupId\tpcMblTp\timpCnt\tclkCnt\tsalesAmt\tavgRnk",
+      "20260206\tcmp-1\tag-1\tPC\t1000\t10\t11000\t3.5",
+      "20260206\tcmp-1\tag-1\tMO\t2000\t30\t33000\t1.8",
+    ].join("\n") + "\n",
 
-  AD_CONVERSION: [
-    "statDt\tnccCampaignId\tnccAdgroupId\tpcMblTp\tconvTpCd\tccnt\tconvAmt",
-    "20260206\tcmp-1\tag-1\tPC\t3\t1\t50000",
-  ].join("\n") + "\n",
+  AD_CONVERSION:
+    [
+      "statDt\tnccCampaignId\tnccAdgroupId\tpcMblTp\tconvTpCd\tccnt\tconvAmt",
+      "20260206\tcmp-1\tag-1\tPC\t3\t1\t50000",
+    ].join("\n") + "\n",
 
-  AD_DETAIL: [
-    "statDt\tnccCampaignId\tnccAdgroupId\tpcMblTp\tnccKeywordId\tkeyword\timpCnt\tclkCnt\tsalesAmt\tavgRnk",
-    "20260206\tcmp-1\tag-1\tPC\tkw-1\t헬로맥스\t100\t5\t1500\t1.1",
-  ].join("\n") + "\n",
+  AD_DETAIL:
+    [
+      "statDt\tnccCampaignId\tnccAdgroupId\tpcMblTp\tnccKeywordId\tkeyword\timpCnt\tclkCnt\tsalesAmt\tavgRnk",
+      "20260206\tcmp-1\tag-1\tPC\tkw-1\t헬로맥스\t100\t5\t1500\t1.1",
+    ].join("\n") + "\n",
 
-  AD_CONVERSION_DETAIL: [
-    "statDt\tnccCampaignId\tnccAdgroupId\tpcMblTp\tnccKeywordId\tkeyword\tconvTpCd\tccnt\tconvAmt",
-  ].join("\n") + "\n",
+  AD_CONVERSION_DETAIL:
+    [
+      "statDt\tnccCampaignId\tnccAdgroupId\tpcMblTp\tnccKeywordId\tkeyword\tconvTpCd\tccnt\tconvAmt",
+    ].join("\n") + "\n",
 
   EXPKEYWORD: "statDt\timpCnt\n",
   SHOPPINGKEYWORD_DETAIL: "header\n",
@@ -80,9 +84,16 @@ function makeMockFetch(): typeof globalThis.fetch {
 // Each POST to /stat-reports gets a unique jobId so the subsequent GET poll
 // can return the correct downloadUrl without a race on a single "lastReportTp".
 const REPORT_TP_LIST = [
-  "AD", "AD_DETAIL", "AD_CONVERSION", "AD_CONVERSION_DETAIL",
-  "EXPKEYWORD", "SHOPPINGKEYWORD_DETAIL", "SHOPPINGKEYWORD_CONVERSION_DETAIL",
-  "SHOPPINGBRANDPRODUCT", "SHOPPINGBRANDPRODUCT_CONVERSION", "BRND_CONTRACT",
+  "AD",
+  "AD_DETAIL",
+  "AD_CONVERSION",
+  "AD_CONVERSION_DETAIL",
+  "EXPKEYWORD",
+  "SHOPPINGKEYWORD_DETAIL",
+  "SHOPPINGKEYWORD_CONVERSION_DETAIL",
+  "SHOPPINGBRANDPRODUCT",
+  "SHOPPINGBRANDPRODUCT_CONVERSION",
+  "BRND_CONTRACT",
 ];
 
 function makeMockClient(): INaverAdsClient {
@@ -171,7 +182,10 @@ describe("E2E: generate_report smoke test", () => {
   it("server boots with mocked deps without throwing", () => {
     const mockClient = makeMockClient();
     const mockFetch = makeMockFetch();
-    const { server, tools } = createServer({ client: mockClient, fetch: mockFetch });
+    const { server, tools } = createServer({
+      client: mockClient,
+      fetch: mockFetch,
+    });
     expect(server).toBeDefined();
     expect(tools).toBeDefined();
     expect(typeof tools.generate_report).toBe("function");
@@ -186,7 +200,11 @@ describe("E2E: generate_report smoke test", () => {
       startDate: "20260206",
       endDate: "20260206",
       outputPath,
-    })) as { path: string; sheetNames: string[]; visibility: Record<string, string> };
+    })) as {
+      path: string;
+      sheetNames: string[];
+      visibility: Record<string, string>;
+    };
 
     // File exists
     expect(existsSync(outputPath)).toBe(true);
@@ -256,9 +274,9 @@ describe("E2E: generate_report smoke test", () => {
     });
     expect(dataRows).toHaveLength(2);
 
-    // Find PC and MO rows by device column (index 8 → "디바이스")
-    const deviceIdx = HEADERS_DAILY_RAW.indexOf("디바이스") + 1; // 1-based
-    const clkIdx = HEADERS_DAILY_RAW.indexOf("클릭수") + 1;
+    // Find PC and MO rows by device column (index 8 → "디바이스.")
+    const deviceIdx = HEADERS_DAILY_RAW.indexOf("디바이스.") + 1; // 1-based
+    const clkIdx = HEADERS_DAILY_RAW.indexOf("클릭수.") + 1;
 
     const pcRow = dataRows.find((r) => r.getCell(deviceIdx).value === "PC");
     const moRow = dataRows.find((r) => r.getCell(deviceIdx).value === "MO");
@@ -277,8 +295,8 @@ describe("E2E: generate_report smoke test", () => {
     const ws = wb.getWorksheet("일별RAW");
     const { HEADERS_DAILY_RAW } = await import("../src/excel/headers.js");
 
-    const deviceIdx = HEADERS_DAILY_RAW.indexOf("디바이스") + 1;
-    const convIdx = HEADERS_DAILY_RAW.indexOf("신청완료") + 1;
+    const deviceIdx = HEADERS_DAILY_RAW.indexOf("디바이스.") + 1;
+    const convIdx = HEADERS_DAILY_RAW.indexOf("신청완료.") + 1;
 
     let pcConv: number | null = null;
     ws!.eachRow((row, rowNum) => {
@@ -297,8 +315,8 @@ describe("E2E: generate_report smoke test", () => {
     const ws = wb.getWorksheet("일별RAW");
     const { HEADERS_DAILY_RAW } = await import("../src/excel/headers.js");
 
-    const deviceIdx = HEADERS_DAILY_RAW.indexOf("디바이스") + 1;
-    const vatIdx = HEADERS_DAILY_RAW.indexOf("광고비 (VAT-)") + 1;
+    const deviceIdx = HEADERS_DAILY_RAW.indexOf("디바이스.") + 1;
+    const vatIdx = HEADERS_DAILY_RAW.indexOf("광고비 (VAT-).") + 1;
 
     let pcVat: number | null = null;
     ws!.eachRow((row, rowNum) => {
