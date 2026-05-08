@@ -39,13 +39,14 @@ TypeScript MCP server that automates Naver Search Ad data collection and generat
 - **L3 API**: `src/api/{client,signer,stat-reports,metadata}.ts`
 - **L2 Service**: `src/{raw,pivot,excel,util}/`
 - **L1 Runtime**: `src/{mcp/server,cli,index}.ts`
+  - MCP surface: 3 tools (`validate_credentials`, `fetch_raw_data`, `generate_report`) + 2 resources (`naver-ads://report-types`, `naver-ads://accounts`)
 
 ## Health Stack
 
 | 명령                | 용도                       |
 | ------------------- | -------------------------- |
 | `npm run typecheck` | TypeScript 검증 (0 errors) |
-| `npm test`          | vitest run (153 passing)   |
+| `npm test`          | vitest run (209 passing)   |
 | `npm run build`     | tsc → dist/                |
 
 ## Critical Constraints

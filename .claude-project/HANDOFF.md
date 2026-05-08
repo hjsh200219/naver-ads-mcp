@@ -1,67 +1,49 @@
 ---
-created: 2026-05-08T16:10:00+09:00
+created: 2026-05-08T16:35:00+09:00
 project: naver-ads-mcp
-summary: helloMAX 참조 템플릿 E2E 패리티 검증 + .env→accounts.json 자격증명 마이그레이션
+summary: accounts.json 정비 + MCP list_* 툴 → resource 전환 (시스템 프롬프트 토큰 ~15-20% 감소)
 ---
 
 ## Session Digest
 
-코드 변경 없는 운영·검증 세션:
-
-1. **E2E 패리티 테스트** — `tests/e2e-reference-parity.test.ts` 28건 PASS 확인. 직접 `dist/`로 비교 스크립트도 돌려 시트 10개·헤더·visibility·컬럼 너비·번호 서식이 `docs/references/1778140340186_(FORM) helloMAX Report_신청완료.xlsx`와 모두 일치함을 시각적으로 검증.
-2. **자격증명 마이그레이션** — 단일 `.env` (`NAVER_ADS_CUSTOMER_ID/ACCESS_LICENSE/SECRET_KEY`) → `accounts.json`의 `primary` 계정으로 이전. dotenv가 `.env` 값의 따옴표를 자동 벗기는 동작을 직접 재현하여 길이 무결성(74/52자) 확인.
-3. **`.env` 제거** — `accounts.json` 단일 소스 정책으로 정리. dotenv는 파일 부재 시 silent 처리됨을 smoke test로 확인.
-4. **글로벌 메모리 갱신** — `~/.claude/.../feedback_git_push_skill.md`에 8단계 통합 워크플로우와 `--pack-only` 자동 전환 규칙을 명시.
+`.env` 자격증명을 `accounts.json`(키: `hellomax`)으로 이관하고 placeholder 계정을 제거. Claude Desktop MCP 설정을 `cwd` 의존에서 `NAVER_ADS_ACCOUNTS_PATH` 환경변수로 전환해 robustness 확보. 핵심 리팩터로 read-only 메타데이터 엔드포인트(`list_report_types`, `list_accounts`)를 MCP tool에서 MCP resource(`naver-ads://report-types`, `naver-ads://accounts`)로 이전 — tool list 인젝션이 사라져 시스템 프롬프트 토큰을 ~15-20% 절감. 테스트 204→209 통과. 남은 3개 tool 통합은 LLM 호출 정확도 우려로 보류.
 
 ## Progress
 
-**완료**
-
-- [x] `npx vitest run tests/e2e-reference-parity.test.ts` → 28/28 PASS, 504ms
-- [x] `npm run typecheck` → 0 errors
-- [x] `npm run build` 후 dist 기반 비교 스크립트 작성·실행: 시트명·visibility·RAW 헤더·SUMMARY 컬럼 너비(3.625/11.75/11.125/9×4/9.125/10.5/10.375/10.5) 일치 확인
-- [x] `accounts.json` 작성 (primary 계정, customerId/license/secret 동일 마이그레이션, mode 600)
-- [x] `loadAccountStore()` smoke test로 source가 accounts.json임을 확인
-- [x] `.env` 삭제 후 env vars unset + accounts.json 단독 동작 재검증
-- [x] 글로벌 `feedback_git_push_skill.md` 메모리 보강 + MEMORY.md 인덱스 갱신
-
-**미완료 (후속 작업 후보)**
-
-- [ ] **Claude Code MCP 서버 재시작** — accounts.json hot-reload 미지원, 메모리에 캐시된 `.env` 자격증명을 새 소스로 교체하려면 재기동 필수
-- [ ] 추가 광고주 등록 (요청 시)
-- [ ] `accounts.example.json` README 가이드에 마이그레이션 절차 추가 검토 (선택)
+- ✅ `.env` → `accounts.json` 이관 (키: `hellomax`)
+- ✅ `secondary` placeholder 제거
+- ✅ README: 새 계정 명명 규칙 반영, 보안 가이드 톤 완화
+- ✅ Claude Desktop MCP config: `cwd` → `NAVER_ADS_ACCOUNTS_PATH` env var 전환
+- ✅ `list_report_types`, `list_accounts` → MCP resource 전환
+  - `naver-ads://report-types`
+  - `naver-ads://accounts`
+- ✅ `accounts.example.json` 제거 (README 인라인 샘플로 일원화)
+- ✅ 테스트 204 → 209 (신규 5개 resource 테스트 통과)
+- ✅ 커밋 + 푸시: `e163600 refactor(mcp): move list_* tools to MCP resources for token reduction`
+- ⏳ 사용자 측 Claude Desktop 재시작 필요 (새 MCP config 적용)
 
 ## Next Steps
 
-1. MCP 서버 재시작 → `validate_credentials({})` 또는 `list_accounts` 호출로 새 소스 검증
-2. 다중 광고주 운영 시 accounts.json에 항목 추가 (`<name>: { customerId, accessLicense, secretKey }`) 후 재시작
-3. AGENTS.md Critical Constraints에 accounts.json 보안 항목 추가 검토 (자동 적용 보류 — 사용자 컨펌 필요)
+1. Claude Desktop 재시작 후 `naver-ads://accounts`, `naver-ads://report-types` resource 정상 노출 검증
+2. 신규 MCP tool 추가 시 token-efficiency 우선 검토 — read-only/메타데이터성은 resource로 시작
+3. 잔여 3개 tool 통합 재검토는 보류 (LLM 호출 정확도 회귀 우려) — 사용 패턴/오류율 데이터 누적 후 재논의
 
 ## Blockers
 
-없음.
+- 없음
 
 ## Watch Out
 
-- **`accounts.json` 권한 600 유지** — group/other 접근 시 startup에 stderr 경고. 키 회전 시 새 파일 생성하면 권한 재설정 필요.
-- **`.env` 재생성 금지** — env fallback은 여전히 동작하지만 단일 소스 원칙 위반. `NAVER_ADS_*` 값을 다시 `.env`에 넣지 말 것.
-- **dotenv 따옴표 처리** — `.env` 값에 양쪽 따옴표가 있으면 dotenv는 벗기지만 직접 파일 파싱 시 벗기지 않음. 마이그레이션 스크립트 재사용 시 unquote 로직 필수.
-- **`accounts.json`은 `.gitignore` 등록** — 자격증명 누출 방지. 작업 트리에 보이더라도 commit 금지.
-- **글로벌 메모리 변경** — `feedback_git_push_skill.md`는 이 프로젝트 git이 아닌 `~/.claude/projects/.../memory/`에 위치. 다른 PC 동기화는 `~/.claude` 별도 sync 필요.
+- `accounts.example.json` 삭제됨 — 신규 셋업 사용자는 README 인라인 JSON 샘플만 참조 가능. 외부 가이드/위키에 example 파일 경로가 남아있지 않은지 주기 점검.
+- MCP resource 전환은 **tool 직접 호출 테스트**(`tools` export)는 유지하므로 기존 단위 테스트 영향 없음. 그러나 외부에서 `list_report_types`/`list_accounts`를 tool 이름으로 부르던 통합/외부 클라이언트가 있으면 깨짐 — breaking change.
+- `NAVER_ADS_ACCOUNTS_PATH`가 미설정이거나 경로 오타일 경우 서버 부팅 시 실패. Claude Desktop config 변경 후 재시작 시 로그 확인.
 
 ## Files Touched
 
-이 git 리포 추적 변경: 0건 (워킹 트리 clean 상태로 세션 종료 직전까지 유지)
-
-세션 중 작업한 파일 (git 추적 외):
-
-- `accounts.json` (신규, gitignored)
-- `.env` (삭제, gitignored)
-- `~/.claude/projects/-Users-edb-development-workspace/memory/feedback_git_push_skill.md` (글로벌 메모리)
-- `~/.claude/projects/-Users-edb-development-workspace/memory/MEMORY.md` (글로벌 인덱스)
-
-이번 Pack 단계에서 신규 추적 파일:
-
-- `.claude-project/memory/accounts-json-active.md` (신규)
-- `.claude-project/memory/MEMORY.md` (Reference 섹션에 1줄 추가)
-- `.claude-project/HANDOFF.md` (덮어쓰기)
+- README.md
+- src/mcp/server.ts
+- tests/mcp.test.ts
+- AGENTS.md (test count 153 → 209, MCP surface 메모 추가)
+- accounts.example.json (삭제)
+- accounts.json (사용자 로컬, gitignore — `.env` 값 이관 + 키 hellomax)
+- ~/Library/Application Support/Claude/claude_desktop_config.json (사용자 로컬, env var 전환)

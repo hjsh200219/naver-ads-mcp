@@ -9,6 +9,9 @@
 - [naver-api-quirks.md](naver-api-quirks.md) — Naver Search Ad API의 비공식 동작·한계 (브랜드검색 영역별 미제공 등)
 - [exceljs-width-9-bug.md](exceljs-width-9-bug.md) — ExcelJS width=9 strip 버그 + column.style 우회법
 - [multi-account-architecture.md](multi-account-architecture.md) — accounts.json 기반 다중 광고주 자격증명 레지스트리 구조
+- [mcp-resources-vs-tools.md](mcp-resources-vs-tools.md) — read-only 메타데이터는 MCP resource로 (system prompt 토큰 ~15-20% 절감)
+- [mcp-deployment-local-path.md](mcp-deployment-local-path.md) — MCP 배포는 로컬 경로 유지 결정 (npx + GitHub install 거부됨)
+- [eslint-tests-no-inline-disable.md](eslint-tests-no-inline-disable.md) — tests/에서 @typescript-eslint/\* 인라인 disable 금지 (룰 미등록)
 
 ## Reference
 
