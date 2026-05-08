@@ -14,6 +14,7 @@
 
 - [github-repo.md](github-repo.md) — GitHub repo 위치 + visibility + 주요 commits
 - [omc-state-cleanup.md](omc-state-cleanup.md) — Stop hook이 ralph 재시작 시도 시 대응법
+- [accounts-json-active.md](accounts-json-active.md) — accounts.json 단일 자격증명 소스 운영 (.env 제거됨)
 
 ## Feedback
 

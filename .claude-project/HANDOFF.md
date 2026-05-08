@@ -1,55 +1,41 @@
 ---
-created: 2026-05-08T15:18:00+09:00
+created: 2026-05-08T16:10:00+09:00
 project: naver-ads-mcp
-summary: 참조 템플릿 픽셀 패리티 + 다중 광고주 자격증명 레지스트리 (accounts.json) 구현 완료
+summary: helloMAX 참조 템플릿 E2E 패리티 검증 + .env→accounts.json 자격증명 마이그레이션
 ---
 
 ## Session Digest
 
-두 가지 큰 작업을 한 세션에서 완료하고 main에 2커밋으로 push:
+코드 변경 없는 운영·검증 세션:
 
-1. **참조 템플릿 픽셀 패리티** (`906bea9`) — `docs/references/(FORM) helloMAX Report.xlsx`와 시트 구조·헤더·번호서식·fill·폰트·테두리·컬럼너비까지 동일하게 출력. ExcelJS의 width=9 strip 버그를 column.style 할당으로 우회.
-
-2. **다중 광고주 레지스트리** (`7f28dbe`) — `accounts.json` 기반 다계정 관리. 모든 MCP 도구에 `account?` 인자 추가, 신규 `list_accounts` 도구. 기존 `.env` 단일 계정 사용자 무중단 fallback.
-
-Architect+Critic 합의 후 ralph TDD-first 구현. 라이브 .env로 validate_credentials API 통과 확인.
+1. **E2E 패리티 테스트** — `tests/e2e-reference-parity.test.ts` 28건 PASS 확인. 직접 `dist/`로 비교 스크립트도 돌려 시트 10개·헤더·visibility·컬럼 너비·번호 서식이 `docs/references/1778140340186_(FORM) helloMAX Report_신청완료.xlsx`와 모두 일치함을 시각적으로 검증.
+2. **자격증명 마이그레이션** — 단일 `.env` (`NAVER_ADS_CUSTOMER_ID/ACCESS_LICENSE/SECRET_KEY`) → `accounts.json`의 `primary` 계정으로 이전. dotenv가 `.env` 값의 따옴표를 자동 벗기는 동작을 직접 재현하여 길이 무결성(74/52자) 확인.
+3. **`.env` 제거** — `accounts.json` 단일 소스 정책으로 정리. dotenv는 파일 부재 시 silent 처리됨을 smoke test로 확인.
+4. **글로벌 메모리 갱신** — `~/.claude/.../feedback_git_push_skill.md`에 8단계 통합 워크플로우와 `--pack-only` 자동 전환 규칙을 명시.
 
 ## Progress
 
 **완료**
 
-- [x] 참조 파일 구조 전체 덤프 (SUMMARY/매체별/키워드/상품/검색어/브랜드검색 + 4개 RAW)
-- [x] `src/excel/styles.ts` 신규 — 폰트/fill/border/numFmt/widths 상수
-- [x] `src/excel/writer.ts` 전면 재작성 — `renderPivotSection` 헬퍼, 모든 섹션 구현
-- [x] Pivot 빌더 5개 시그니처 변경 — `MetricsGroup[]` 반환 (PivotCell[][] 폐기)
-- [x] RAW 헤더 trailing dot, Date 컬럼 mm-dd-yy, numeric `#,##0` 적용
-- [x] `tests/e2e-reference-parity.test.ts` 28 tests — 구조/포맷/스타일 패리티 검증
-- [x] `src/config/account-store.ts` (L4) — IAccountStore + MapAccountStore + AccountNotFoundError
-- [x] `src/config/credentials.ts` — `freezeCredential` 헬퍼 추출
-- [x] `src/runtime/account-bootstrap.ts` (L1) — JSON 파일 read + env fallback
-- [x] `src/mcp/server.ts` — account 인자 라우팅, customerId 기반 클라이언트 캐싱, list_accounts 도구
-- [x] `src/cli.ts` — startup 시 eager loadAccountStore (fail-fast)
-- [x] 22개 신규 테스트 (account-store/account-bootstrap/mcp-multiaccount/layer-rules)
-- [x] `accounts.example.json` (≥2 계정), `.gitignore`에 `accounts.json` 추가
-- [x] `docs/SECURITY.md` 다중 광고주 + transcript-leak residual 섹션
-- [x] `docs/design-docs/layer-rules.md`에 `src/runtime/*` = L1 등재
-- [x] README 다중 광고주 등록/사용 가이드 + 키 회전 시 재시작 명시
-- [x] 라이브 smoke: `validate_credentials({})` → Naver API 인증 통과
-- [x] typecheck 0 errors, 204/204 tests GREEN, lint clean
-- [x] git push origin main (2 commits: 906bea9, 7f28dbe)
+- [x] `npx vitest run tests/e2e-reference-parity.test.ts` → 28/28 PASS, 504ms
+- [x] `npm run typecheck` → 0 errors
+- [x] `npm run build` 후 dist 기반 비교 스크립트 작성·실행: 시트명·visibility·RAW 헤더·SUMMARY 컬럼 너비(3.625/11.75/11.125/9×4/9.125/10.5/10.375/10.5) 일치 확인
+- [x] `accounts.json` 작성 (primary 계정, customerId/license/secret 동일 마이그레이션, mode 600)
+- [x] `loadAccountStore()` smoke test로 source가 accounts.json임을 확인
+- [x] `.env` 삭제 후 env vars unset + accounts.json 단독 동작 재검증
+- [x] 글로벌 `feedback_git_push_skill.md` 메모리 보강 + MEMORY.md 인덱스 갱신
 
 **미완료 (후속 작업 후보)**
 
-- [ ] `accounts.json` 핫리로드 (`fs.watch` + 동시 호출 안전 자격증명 갱신)
-- [ ] OS Keychain / libsecret 기반 암호화 저장소
-- [ ] CI에 `RUN_LIVE=1 npm test` 자동화 (실 자격증명 smoke)
-- [ ] `package.json` 버전 0.2.0 publish 절차
+- [ ] **Claude Code MCP 서버 재시작** — accounts.json hot-reload 미지원, 메모리에 캐시된 `.env` 자격증명을 새 소스로 교체하려면 재기동 필수
+- [ ] 추가 광고주 등록 (요청 시)
+- [ ] `accounts.example.json` README 가이드에 마이그레이션 절차 추가 검토 (선택)
 
 ## Next Steps
 
-1. 멀티 광고주 환경 실사용 검증 — 2개 이상 실제 광고주 등록 후 `generate_report({account: "..."})` 테스트
-2. `tests/e2e-reference-parity.test.ts`의 잔여 1 WARN (검색어RAW 날짜 컬럼 width=null vs 11.125) 처리 여부 결정
-3. README 영문 번역 검토 (현재 한글만)
+1. MCP 서버 재시작 → `validate_credentials({})` 또는 `list_accounts` 호출로 새 소스 검증
+2. 다중 광고주 운영 시 accounts.json에 항목 추가 (`<name>: { customerId, accessLicense, secretKey }`) 후 재시작
+3. AGENTS.md Critical Constraints에 accounts.json 보안 항목 추가 검토 (자동 적용 보류 — 사용자 컨펌 필요)
 
 ## Blockers
 
@@ -57,35 +43,25 @@ Architect+Critic 합의 후 ralph TDD-first 구현. 라이브 .env로 validate_c
 
 ## Watch Out
 
-- **자격증명 회전 시 MCP 서버 재시작 필수** — `accounts.json` 편집 후 Claude Code 재기동. 핫리로드 미지원.
-- **account label은 LLM transcript에 노출됨** — 광고주 실명 대신 `acc1`, `client-001` 같은 opaque label 권장.
-- **ExcelJS width=9 strip 버그** — `setColumnWidths`에서 모든 컬럼에 `col.style = { font: ... }` 할당 필수. 안 하면 cols 4-8 너비가 저장 안 됨.
-- **Pivot builder 시그니처 변경** — 외부 코드가 `pivot.rows[]` 모양에 의존했다면 전부 깨짐. 현재 코드베이스는 writer만 의존하므로 안전.
-- **`.claude-project/`는 git 추적됨** — 시크릿 절대 저장 금지. `accounts.json`은 `.gitignore` 등록됨.
+- **`accounts.json` 권한 600 유지** — group/other 접근 시 startup에 stderr 경고. 키 회전 시 새 파일 생성하면 권한 재설정 필요.
+- **`.env` 재생성 금지** — env fallback은 여전히 동작하지만 단일 소스 원칙 위반. `NAVER_ADS_*` 값을 다시 `.env`에 넣지 말 것.
+- **dotenv 따옴표 처리** — `.env` 값에 양쪽 따옴표가 있으면 dotenv는 벗기지만 직접 파일 파싱 시 벗기지 않음. 마이그레이션 스크립트 재사용 시 unquote 로직 필수.
+- **`accounts.json`은 `.gitignore` 등록** — 자격증명 누출 방지. 작업 트리에 보이더라도 commit 금지.
+- **글로벌 메모리 변경** — `feedback_git_push_skill.md`는 이 프로젝트 git이 아닌 `~/.claude/projects/.../memory/`에 위치. 다른 PC 동기화는 `~/.claude` 별도 sync 필요.
 
 ## Files Touched
 
-**신규 (10)**:
+이 git 리포 추적 변경: 0건 (워킹 트리 clean 상태로 세션 종료 직전까지 유지)
 
-- `src/config/account-store.ts`
-- `src/excel/styles.ts`
-- `src/runtime/account-bootstrap.ts`
-- `accounts.example.json`
-- `tests/account-store.test.ts`
-- `tests/account-bootstrap.test.ts`
-- `tests/mcp-multiaccount.test.ts`
-- `tests/layer-rules.test.ts`
-- `tests/e2e-reference-parity.test.ts`
-- `scripts/{compare-with-reference,dump-reference-full,dump-reference-skeleton,inspect-reference}.mjs`
+세션 중 작업한 파일 (git 추적 외):
 
-**수정**:
+- `accounts.json` (신규, gitignored)
+- `.env` (삭제, gitignored)
+- `~/.claude/projects/-Users-edb-development-workspace/memory/feedback_git_push_skill.md` (글로벌 메모리)
+- `~/.claude/projects/-Users-edb-development-workspace/memory/MEMORY.md` (글로벌 인덱스)
 
-- `src/cli.ts`, `src/mcp/server.ts`, `src/config/credentials.ts`
-- `src/excel/{headers,writer}.ts`, `src/pivot/{types,summary,media,keyword,product,search-term}.ts`
-- `tests/{e2e,excel,mcp,pivot}.test.ts`
-- `.gitignore`, `README.md`, `docs/SECURITY.md`, `docs/design-docs/layer-rules.md`
+이번 Pack 단계에서 신규 추적 파일:
 
-## Commits
-
-- `7f28dbe` feat(mcp): multi-advertiser credential registry via accounts.json
-- `906bea9` feat(report): pixel-parity with helloMAX reference Excel template
+- `.claude-project/memory/accounts-json-active.md` (신규)
+- `.claude-project/memory/MEMORY.md` (Reference 섹션에 1줄 추가)
+- `.claude-project/HANDOFF.md` (덮어쓰기)
