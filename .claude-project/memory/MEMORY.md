@@ -7,6 +7,8 @@
 - [naver-ads-mcp-stack.md](naver-ads-mcp-stack.md) — TypeScript MCP server stack + 핵심 제약
 - [hellomax-template-shape.md](hellomax-template-shape.md) — helloMAX Report Excel 10시트 구조 + 시트 visibility 규칙
 - [naver-api-quirks.md](naver-api-quirks.md) — Naver Search Ad API의 비공식 동작·한계 (브랜드검색 영역별 미제공 등)
+- [exceljs-width-9-bug.md](exceljs-width-9-bug.md) — ExcelJS width=9 strip 버그 + column.style 우회법
+- [multi-account-architecture.md](multi-account-architecture.md) — accounts.json 기반 다중 광고주 자격증명 레지스트리 구조
 
 ## Reference
 

@@ -1,127 +1,91 @@
 ---
-created: 2026-05-08T16:00:00+09:00
+created: 2026-05-08T15:18:00+09:00
 project: naver-ads-mcp
-summary: 워크스페이스 폴더명 zebra-brothers-ae → naver-ads-mcp 일괄 갱신 (docs only)
+summary: 참조 템플릿 픽셀 패리티 + 다중 광고주 자격증명 레지스트리 (accounts.json) 구현 완료
 ---
 
 ## Session Digest
 
-워크스페이스 폴더명을 `naver-ads-mcp`로 변경한 것에 맞춰 프로젝트 내 잔존 과거 이름(`zebra-brothers-ae`)을 일괄 갱신. 코드 변경 없음, 문서/계획서 5개 파일만 수정.
+두 가지 큰 작업을 한 세션에서 완료하고 main에 2커밋으로 push:
 
-수정 대상:
+1. **참조 템플릿 픽셀 패리티** (`906bea9`) — `docs/references/(FORM) helloMAX Report.xlsx`와 시트 구조·헤더·번호서식·fill·폰트·테두리·컬럼너비까지 동일하게 출력. ExcelJS의 width=9 strip 버그를 column.style 할당으로 우회.
 
-- `README.md` — MCP 서버 등록 예제 절대 경로 2곳
-- `.omc/plans/architect-review-r1.md` — References 섹션 경로 2곳
-- `.omc/plans/naver-ads-access-plan.md` — 프로젝트 헤더 + 파일 구조 트리
-- `.claude-project/HANDOFF.md` — Session Digest 프로젝트명
+2. **다중 광고주 레지스트리** (`7f28dbe`) — `accounts.json` 기반 다계정 관리. 모든 MCP 도구에 `account?` 인자 추가, 신규 `list_accounts` 도구. 기존 `.env` 단일 계정 사용자 무중단 fallback.
 
-`zebra-brothers-ax`(sister project) 참조는 별개 프로젝트이므로 보존. `.claude/settings.local.json`의 `ProjectMarketing/` 부모 디렉터리 권한도 유효하므로 미변경.
-
-### 직전 세션 (2026-05-08 13:30) 컨텍스트 보존
-
-새 프로젝트 `naver-ads-mcp`를 zero에서 production-ready MCP 서버로 구축. 핵심 흐름:
-
-1. **Ralplan 합의 (Iteration 2)** — Naver Search Ad API 접근 설계. Architect r2 APPROVE_AS_IS, Critic r2 APPROVE. 11/11 actions 적용. ADR/RALPLAN-DR 문서 6개 .omc/plans/에 저장.
-2. **다차원 보고서 조사** — `<키워드_운영성과>`/`<키워드_전환성과>` API 매핑. Naver 공식: AD/AD_DETAIL + AD_CONVERSION/AD_CONVERSION_DETAIL reportTp로 근사 재현 가능. 다차원 보고서 자체는 API 미제공.
-3. **helloMAX 엑셀 분석** — 10 sheets (5 visible / 5 hidden). 9 sheets API 자동화 가능, **브랜드검색 영역별만 API 미지원** (Issue #1072) → hidden placeholder.
-4. **Ralph 12 user stories TDD 구현** — 153 tests passing, typecheck/build 깨끗. Architect APPROVE_WITH_NITS → 5 nits 중 2개 deslop 단계에서 해소.
-5. **GitHub 배포** — private repo `hjsh200219/naver-ads-mcp` 생성 + push. `.env`, `docs/references/`(실 광고주 데이터) 제외.
-6. **하네스 셋업** — 5-agent pipeline (repo-auditor, knowledge-architect, agent-md-refactorer, lint-rule-designer, setup-reviewer). AGENTS.md/ARCHITECTURE.md/docs/harness/\* 생성, ESLint 21 zones, knip strict, husky+lint-staged.
-7. **하네스 GC #1** — Baseline L4 (82.26점). 자동 수정 4건 (미사용 export 7개, AggregatedRow 제거, knip config 정정, coverage thresholds). ESLint v10→v9.39.4 다운그레이드 (peer dep).
+Architect+Critic 합의 후 ralph TDD-first 구현. 라이브 .env로 validate_credentials API 통과 확인.
 
 ## Progress
 
-### 완료
+**완료**
 
-- ✅ 12 user stories (US-001 ~ US-012)
-- ✅ 153 vitest tests passing
-- ✅ TypeScript strict + 0 errors
-- ✅ ESLint 21 zones 통과
-- ✅ Knip strict 0건
-- ✅ npm run gc 통합 게이트
-- ✅ husky + lint-staged pre-commit
-- ✅ vitest coverage thresholds (statements 90 / branches 60 / functions 95 / lines 90)
-- ✅ AGENTS.md (83줄, map 역할) + CLAUDE.md/.cursorrules symlinks
-- ✅ ARCHITECTURE.md (5계층 + Allowed Edges)
-- ✅ docs/ 표준 구조 (design-docs, exec-plans, generated, harness)
-- ✅ GitHub private repo 배포 (3 commits: bootstrap → harness setup → GC #1)
-- ✅ RALPLAN-DR 합의 문서 6개 (.omc/plans/)
-- ✅ tech-debt-tracker 6개 부채 등록
+- [x] 참조 파일 구조 전체 덤프 (SUMMARY/매체별/키워드/상품/검색어/브랜드검색 + 4개 RAW)
+- [x] `src/excel/styles.ts` 신규 — 폰트/fill/border/numFmt/widths 상수
+- [x] `src/excel/writer.ts` 전면 재작성 — `renderPivotSection` 헬퍼, 모든 섹션 구현
+- [x] Pivot 빌더 5개 시그니처 변경 — `MetricsGroup[]` 반환 (PivotCell[][] 폐기)
+- [x] RAW 헤더 trailing dot, Date 컬럼 mm-dd-yy, numeric `#,##0` 적용
+- [x] `tests/e2e-reference-parity.test.ts` 28 tests — 구조/포맷/스타일 패리티 검증
+- [x] `src/config/account-store.ts` (L4) — IAccountStore + MapAccountStore + AccountNotFoundError
+- [x] `src/config/credentials.ts` — `freezeCredential` 헬퍼 추출
+- [x] `src/runtime/account-bootstrap.ts` (L1) — JSON 파일 read + env fallback
+- [x] `src/mcp/server.ts` — account 인자 라우팅, customerId 기반 클라이언트 캐싱, list_accounts 도구
+- [x] `src/cli.ts` — startup 시 eager loadAccountStore (fail-fast)
+- [x] 22개 신규 테스트 (account-store/account-bootstrap/mcp-multiaccount/layer-rules)
+- [x] `accounts.example.json` (≥2 계정), `.gitignore`에 `accounts.json` 추가
+- [x] `docs/SECURITY.md` 다중 광고주 + transcript-leak residual 섹션
+- [x] `docs/design-docs/layer-rules.md`에 `src/runtime/*` = L1 등재
+- [x] README 다중 광고주 등록/사용 가이드 + 키 회전 시 재시작 명시
+- [x] 라이브 smoke: `validate_credentials({})` → Naver API 인증 통과
+- [x] typecheck 0 errors, 204/204 tests GREEN, lint clean
+- [x] git push origin main (2 commits: 906bea9, 7f28dbe)
 
-### 미완료 / 보류
+**미완료 (후속 작업 후보)**
 
-- ⏸ #1 validate_credentials 비-NaverAdsApiError 케이스 (낮음)
-- ⏸ #2 AD_CONVERSION_DETAIL 45일 한계 — 일일 누적 cron 미구현 (중간)
-- ⏸ #3 브랜드검색 영역별 자동화 (Phase 6 후보, Naver API 미지원으로 보류)
-- ⏸ #4 PivotSheetLike 인터페이스 동기화 책임 미명시 (낮음)
-- ⏸ #5 mcp/server.ts 438줄 분할 (낮음, 신규 도구 추가 시점)
-- ⏸ #6 구조화 logger 부재 — pino 도입 (중간, P8 약점 해소)
+- [ ] `accounts.json` 핫리로드 (`fs.watch` + 동시 호출 안전 자격증명 갱신)
+- [ ] OS Keychain / libsecret 기반 암호화 저장소
+- [ ] CI에 `RUN_LIVE=1 npm test` 자동화 (실 자격증명 smoke)
+- [ ] `package.json` 버전 0.2.0 publish 절차
 
 ## Next Steps
 
-다음 세션에서 우선순위 순으로:
-
-1. **logger.ts 도입** (pino, P8 6→8 향상 기대)
-   - `src/lib/logger.ts` 생성: level/timestamp/context/error 구조화
-   - `cli.ts`의 `console.error` → `logger.error`
-   - `mcp/server.ts` catch 블록에서 logger 사용
-2. **mcp/server.ts 분할** (P4/P6 향상)
-   - `src/mcp/tools/{validate-credentials,list-report-types,fetch-raw-data,generate-report}.ts` 4개 파일로 분리
-   - server.ts는 wiring만 담당 (~100줄)
-3. **AD_CONVERSION_DETAIL 누적 cron** (#2)
-   - 일일 누적 저장 설계 (로컬 파일 또는 SQLite)
-   - 새 MCP tool: `accumulate_daily_conversion`
-4. **GC #2 실행** — logger.ts + 분할 후 점수 재측정 (L4 → L4+ 또는 L5 진입 기대)
+1. 멀티 광고주 환경 실사용 검증 — 2개 이상 실제 광고주 등록 후 `generate_report({account: "..."})` 테스트
+2. `tests/e2e-reference-parity.test.ts`의 잔여 1 WARN (검색어RAW 날짜 컬럼 width=null vs 11.125) 처리 여부 결정
+3. README 영문 번역 검토 (현재 한글만)
 
 ## Blockers
 
-없음. 모든 외부 의존성(Naver API 키, GitHub auth) 셋업 완료.
+없음.
 
 ## Watch Out
 
-- **Stop hook이 ralph/ralplan 재시작을 시도할 수 있음** — `.claude-project/memory/omc-state-cleanup.md` 참조. state clear로 대응.
-- **ESLint v10 사용 금지** — eslint-plugin-import@2.32.0이 v9까지만 지원. v9.39.4 고정.
-- **`.env`, `docs/references/`는 절대 commit 금지** — `.gitignore` 등록 완료, 검증 통과.
-- **브랜드검색 영역별 데이터** — Naver API 미지원. Playwright 자동화 시 ToS 회색지대 + 30일 보관 한계 + 봇 탐지 위험.
-- **AD_CONVERSION_DETAIL 45일 한계** — 장기 데이터 필요 시 매일 누적 저장 설계 필수.
-- **vitest 2.1.9 + @vitest/coverage-v8 2.1.9 버전 매치 필수** — minor mismatch 시 "Cannot find dependency" 에러.
+- **자격증명 회전 시 MCP 서버 재시작 필수** — `accounts.json` 편집 후 Claude Code 재기동. 핫리로드 미지원.
+- **account label은 LLM transcript에 노출됨** — 광고주 실명 대신 `acc1`, `client-001` 같은 opaque label 권장.
+- **ExcelJS width=9 strip 버그** — `setColumnWidths`에서 모든 컬럼에 `col.style = { font: ... }` 할당 필수. 안 하면 cols 4-8 너비가 저장 안 됨.
+- **Pivot builder 시그니처 변경** — 외부 코드가 `pivot.rows[]` 모양에 의존했다면 전부 깨짐. 현재 코드베이스는 writer만 의존하므로 안전.
+- **`.claude-project/`는 git 추적됨** — 시크릿 절대 저장 금지. `accounts.json`은 `.gitignore` 등록됨.
 
 ## Files Touched
 
-### Source (24 .ts files)
+**신규 (10)**:
 
-- `src/api/{client,signer,stat-reports,metadata,types}.ts`
-- `src/config/credentials.ts`
-- `src/raw/{builder,daily,keyword,search-term,material}.ts`
-- `src/pivot/{aggregate,summary,media,keyword,product,search-term,types}.ts`
-- `src/excel/{writer,headers}.ts`
-- `src/mcp/server.ts`
-- `src/util/dates.ts`
-- `src/{cli,index}.ts`
+- `src/config/account-store.ts`
+- `src/excel/styles.ts`
+- `src/runtime/account-bootstrap.ts`
+- `accounts.example.json`
+- `tests/account-store.test.ts`
+- `tests/account-bootstrap.test.ts`
+- `tests/mcp-multiaccount.test.ts`
+- `tests/layer-rules.test.ts`
+- `tests/e2e-reference-parity.test.ts`
+- `scripts/{compare-with-reference,dump-reference-full,dump-reference-skeleton,inspect-reference}.mjs`
 
-### Tests (12 files, 153 tests)
+**수정**:
 
-- `tests/{scaffolding,credentials,signer,client,stat-reports,metadata,dates,raw,pivot,excel,mcp,e2e}.test.ts`
+- `src/cli.ts`, `src/mcp/server.ts`, `src/config/credentials.ts`
+- `src/excel/{headers,writer}.ts`, `src/pivot/{types,summary,media,keyword,product,search-term}.ts`
+- `tests/{e2e,excel,mcp,pivot}.test.ts`
+- `.gitignore`, `README.md`, `docs/SECURITY.md`, `docs/design-docs/layer-rules.md`
 
-### Harness (Phase 2 + 3 산출물)
+## Commits
 
-- `AGENTS.md` (83줄), `ARCHITECTURE.md`, `.claudeignore`
-- `CLAUDE.md` → `AGENTS.md` (symlink)
-- `.cursorrules` → `AGENTS.md` (symlink)
-- `eslint.config.mjs` (21 zones), `knip.json`, `vitest.config.ts`
-- `scripts/gc.sh`, `.husky/pre-commit`
-- `docs/{PLANS,PRODUCT_SENSE,QUALITY,RELIABILITY,SECURITY}.md`
-- `docs/design-docs/{index,core-beliefs,layer-rules}.md`
-- `docs/exec-plans/{active/.gitkeep,completed/index.md,tech-debt-tracker.md}`
-- `docs/generated/db-schema.md`
-- `docs/harness/{README,principles,maturity-framework,fix-catalog,gc-history,harness-setup}.md`
-
-### Plans / Memory
-
-- `.omc/prd.json`, `.omc/progress.txt`
-- `.omc/plans/{naver-ads-access-plan,architect-review-r1,architect-review-r2,critic-review-r1,critic-review-r2,open-questions}.md`
-
-### Config
-
-- `package.json`, `package-lock.json`, `tsconfig.json`, `.gitignore`, `.env.example`
-- `README.md` (한글 174줄)
+- `7f28dbe` feat(mcp): multi-advertiser credential registry via accounts.json
+- `906bea9` feat(report): pixel-parity with helloMAX reference Excel template
