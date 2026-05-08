@@ -8,6 +8,8 @@
 | 2   | AD_CONVERSION_DETAIL 45일 한계 — 일일 누적 저장 미구현    | 중간   | 미해소    | Phase 4      |
 | 3   | 브랜드검색 영역별 성과 자동화 미구현                      | 낮음   | 설계 보류 | Phase 6 후보 |
 | 4   | Excel writer PivotSheetLike 인터페이스 동기화 책임 미명시 | 낮음   | 미해소    | Phase 4      |
+| 5   | mcp/server.ts 438줄 단일 파일 — tools/ 분할 후보          | 낮음   | 미해소    | GC#1 발견    |
+| 6   | 구조화 logger 부재 (P8 약점) — pino 또는 winston 도입     | 중간   | 미해소    | GC#1 발견    |
 
 ---
 
@@ -65,3 +67,44 @@
 **제안 해결**: `PivotSheetLike`를 `pivot/types.ts`에서 export하거나, 명시적 `satisfies` 타입 검사 추가.
 
 **영향**: TypeScript strict 모드에서 현재는 탐지 가능하나, 구조적 호환성 변경 시 런타임 오류 가능.
+
+---
+
+### #5 mcp/server.ts 438줄 단일 파일
+
+**위치**: `src/mcp/server.ts`
+
+**문제**: 4개 MCP tool 구현 + Server wiring + Zod schemas + ListTools/CallTool handlers가 모두 한 파일에 집중. 신규 도구 추가 시 충돌 위험 + 가독성 저하.
+
+**발견 경위**: GC #1 (2026-05-08) arch-inspector + quality-scorer 보고
+
+**제안 해결**: `src/mcp/tools/` 서브디렉토리 생성, 4개 도구 함수를 각각 파일로 분리. server.ts는 wiring만 담당.
+
+**영향 범위**: tests/mcp.test.ts의 import 경로만 변경. 동작 변경 없음.
+
+**우선도**: Low. 신규 도구 추가 시점에 함께 진행 권장.
+
+---
+
+### #6 구조화 logger 부재 (P8 약점)
+
+**위치**: `src/cli.ts` (현재 console.error만), `src/mcp/server.ts`
+
+**문제**: P8 Observability 6점 — production observability 미흡. console.error만으로는 level/timestamp/context 분류 불가.
+
+**발견 경위**: GC #1 (2026-05-08) quality-scorer 약점 Top 3 #1
+
+**제안 해결**: `pino` 도입 (가벼움, MCP stderr 호환). `src/lib/logger.ts` 생성:
+
+- level (info/warn/error)
+- timestamp (ISO 8601)
+- context (도구 이름, 사용자 ID 등)
+- error (name/message/stack — production에서는 stack 제거)
+
+**영향 범위**:
+
+- `cli.ts`의 `console.error` → `logger.error/info`
+- `mcp/server.ts`의 catch 블록에서 logger 활용
+- `validate_credentials` 분류 메시지 강화
+
+**우선도**: Medium. 다음 신규 기능 추가 전에 도입 권장.

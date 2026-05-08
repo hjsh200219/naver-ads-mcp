@@ -3,5 +3,5 @@
   "entry": ["src/cli.ts", "src/index.ts", "src/mcp/server.ts"],
   "project": ["src/**/*.ts"],
   "ignore": ["dist/**", "_workspace/**"],
-  "ignoreDependencies": ["@types/node", "exceljs"]
+  "ignoreDependencies": ["@types/node", "exceljs", "@vitest/coverage-v8"]
 }
