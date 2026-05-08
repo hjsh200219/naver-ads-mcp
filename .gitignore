@@ -31,10 +31,7 @@ Thumbs.db
 data/
 output/
 *.parquet
-report-*.xlsx
 
-# Reference docs (contain actual advertiser data — private to local copy)
-docs/references/
 
 # Harness engineering workspace (temporary)
 _workspace/
