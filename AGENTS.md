@@ -50,7 +50,8 @@ TypeScript MCP server that automates Naver Search Ad data collection and generat
 
 ## Critical Constraints
 
-- `.env`는 절대 commit 금지. `.gitignore` 등록 완료
+- `.env`·`accounts.json`은 절대 commit 금지. `.gitignore` 등록 완료
+- `accounts.json`은 `chmod 600` 유지. 변경 후 MCP 서버 재시작 필수 (핫리로드 미지원)
 - `accessLicense`/`secretKey` 필드는 `enumerable: false` (자격증명 비누출)
 - HMAC payload는 `{ts}.{METHOD}.{path-no-query}` 정확 매치
 - SECRET_KEY는 헤더 미전송 (서명 생성 전용)
