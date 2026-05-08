@@ -5,17 +5,18 @@ type: project
 created: 2026-05-08
 ---
 
-helloMAX 주간/데일리 광고 리포트 자동화 + 광고주별 Live Artifact 대시보드를 `naver-ads-mcp`에 확장 형태로 구현하는 합의 플랜이 **v1.2 LOCKED** 상태로 산출됨. 산출물 위치: `docs/exec-plans/active/weekly-report-automation-plan.md` + 4 review + 1 codex review. v1.2 변경점: 결제 한도/결재 게이트 전부 제거(visibility 알림만 유지).
+helloMAX 주간/데일리 광고 리포트 자동화 + 광고주별 Live Artifact 대시보드를 `naver-ads-mcp`에 확장 형태로 구현하는 합의 플랜이 **v1.3 FINAL** 상태로 산출됨. 산출물 위치: `docs/exec-plans/active/weekly-report-automation-plan.md` + 4 review + 1 codex review. v1.3 변경점: (1) O2 dev=1인 → 약 8주 (Phase 3 단순화) (2) O1 택스아이는 Naver API 한계 → 단순 데이터 표기 (3) Codex 제안 채택: artifact는 preview only, 발송은 EML export → AE 메일 클라이언트로 직접. SES·send_report_email 제거.
 
-**핵심 결정** (Phase 0 진입 시 참조 필수):
+**핵심 결정** (Phase 0 진입 시 참조 필수, v1.3 FINAL):
 
-- Decision: Option A — Live Artifact (preview-first) + MCP 확장 (5 tools + 4 resources)
-- Tool 추가: `prepare_weekly_dashboard`, `send_report_email`
+- Decision: Option A — Live Artifact **preview only** + EML export + MCP 확장 (5 tools + 4 resources)
+- Tool 추가: `prepare_weekly_dashboard`, **`export_email_draft`** (v1.3, send_report_email 폐기)
 - Resource 추가: `naver-ads://client-mappings`, `naver-ads://history/{client}`
-- 일정: 8.5주 (P3 ↔ P3.5 0.5주 병렬 슬라이스) / 9주 fallback
+- 일정: **약 8주 (1인 개발, 직렬)** / 슬리피지 시 데일리 후퇴로 6주 v1.0 ship 가능
 - 편집 default: AE 자연어 → MCP 재호출. JSON copy/paste opt-in
+- 발송: AE가 `~/.naver-ads-mcp/drafts/{client}/{week}.eml` 파일을 Mail.app/Outlook/Gmail로 직접 발송 (서버 자동 발송 0)
 - Hallucination guard: 95% (1차 ship), 99% (Phase 4)
-- 보안 핵심: AE 머신이 단일 보안 경계 → Phase 4 runbook 의무화 + Anthropic 키는 `.env` + `enumerable:false` (accounts.json 오염 금지)
+- 보안 핵심: AE 머신이 단일 보안 경계 → Phase 4 runbook 의무화 + Anthropic 키는 `.env` + `enumerable:false`. SES·도메인 인증·DKIM/SPF 모두 v1.3에서 제거
 
 **Phase 1 GO 게이트** (모두 충족해야 진입; v1.2에서 결재·한도 게이트 제거):
 
