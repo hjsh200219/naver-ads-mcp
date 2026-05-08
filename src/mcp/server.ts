@@ -6,10 +6,15 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 
+import type { NaverAdsCredentials } from "../config/credentials.js";
 import { EnvCredentialLoader } from "../config/credentials.js";
-import type { ICredentialLoader } from "../config/credentials.js";
 import { NaverAdsClient, NaverAdsApiError } from "../api/client.js";
 import type { INaverAdsClient } from "../api/types.js";
+import {
+  AccountNotFoundError,
+  MapAccountStore,
+  type IAccountStore,
+} from "../config/account-store.js";
 import { REPORT_TYPES, requestStatReport } from "../api/stat-reports.js";
 import {
   getCampaigns,
@@ -29,8 +34,15 @@ import { buildSearchTermPerformance } from "../pivot/search-term.js";
 import { writeReport } from "../excel/writer.js";
 
 export interface ServerDeps {
-  credentialLoader?: ICredentialLoader;
+  /** Multi-account registry. If omitted, falls back to legacy env-var single-account behaviour. */
+  accountStore?: IAccountStore;
+  /** Backwards-compat: if no accountStore, use this loader to build a single-account store. */
+  credentialLoader?: { load(): NaverAdsCredentials };
+  /** Pre-built client (test path). Bypasses accountStore — used as a single shared client for ALL accounts. */
   client?: INaverAdsClient;
+  /** Factory for building per-account clients. If omitted, defaults to `new NaverAdsClient(...)`. */
+  clientFactory?: (cred: NaverAdsCredentials) => INaverAdsClient;
+  /** Injectable for tests. */
   fetch?: typeof globalThis.fetch;
   baseUrl?: string;
 }
@@ -39,13 +51,26 @@ export interface ServerDeps {
 // Argument schemas
 // ---------------------------------------------------------------------------
 
+// Account identifier: alphanumeric + dash + underscore, max 64 chars.
+// Korean/non-ASCII labels are rejected to keep names safe to log and to
+// avoid platform-specific path-collision surprises in future filesystem use.
+const ACCOUNT_PATTERN = "^[a-zA-Z0-9_-]{1,64}$";
+const AccountSchema = z
+  .string()
+  .regex(new RegExp(ACCOUNT_PATTERN), "Invalid account identifier")
+  .optional();
+
+const NoArgsSchema = z.object({ account: AccountSchema }).strict();
+
 const FetchRawDataSchema = z.object({
+  account: AccountSchema,
   reportTp: z.enum(REPORT_TYPES),
   startDate: z.string().regex(/^\d{8}$/),
   endDate: z.string().regex(/^\d{8}$/),
 });
 
 const GenerateReportSchema = z.object({
+  account: AccountSchema,
   startDate: z.string().regex(/^\d{8}$/),
   endDate: z.string().regex(/^\d{8}$/),
   outputPath: z.string(),
@@ -55,16 +80,19 @@ const GenerateReportSchema = z.object({
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Enumerate all YYYYMMDD dates from startDate..endDate inclusive (UTC). */
 function enumerateDates(startDate: string, endDate: string): string[] {
   const toUtcMs = (s: string) =>
     Date.UTC(
       Number(s.slice(0, 4)),
       Number(s.slice(4, 6)) - 1,
-      Number(s.slice(6, 8))
+      Number(s.slice(6, 8)),
     );
   const dates: string[] = [];
-  for (let cursor = toUtcMs(startDate), endMs = toUtcMs(endDate); cursor <= endMs; cursor += 86_400_000) {
+  for (
+    let cursor = toUtcMs(startDate), endMs = toUtcMs(endDate);
+    cursor <= endMs;
+    cursor += 86_400_000
+  ) {
     const d = new Date(cursor);
     const yyyy = String(d.getUTCFullYear());
     const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
@@ -78,8 +106,13 @@ function toContentText(obj: unknown): { type: "text"; text: string }[] {
   return [{ type: "text", text: JSON.stringify(obj) }];
 }
 
-/** Reusable JSON Schema fragment for YYYYMMDD date strings used in tool inputSchema. */
 const YYYYMMDD = { type: "string" as const, pattern: "^\\d{8}$" };
+const ACCOUNT_SCHEMA_FRAG = {
+  type: "string" as const,
+  pattern: ACCOUNT_PATTERN,
+  description:
+    "Account identifier (defaults to the configured default account)",
+};
 
 // ---------------------------------------------------------------------------
 // Factory
@@ -88,39 +121,89 @@ const YYYYMMDD = { type: "string" as const, pattern: "^\\d{8}$" };
 export function createServer(deps: ServerDeps = {}): {
   server: Server;
   tools: {
-    validate_credentials: () => Promise<unknown>;
+    validate_credentials: (args?: { account?: string }) => Promise<unknown>;
     list_report_types: () => unknown;
-    fetch_raw_data: (args: z.infer<typeof FetchRawDataSchema>) => Promise<unknown>;
-    generate_report: (args: z.infer<typeof GenerateReportSchema>) => Promise<unknown>;
+    list_accounts: () => unknown;
+    fetch_raw_data: (
+      args: z.infer<typeof FetchRawDataSchema>,
+    ) => Promise<unknown>;
+    generate_report: (
+      args: z.infer<typeof GenerateReportSchema>,
+    ) => Promise<unknown>;
   };
 } {
   const BASE_URL = deps.baseUrl ?? "https://api.searchad.naver.com";
 
-  // Resolve client lazily so that missing env vars only fail at call time.
-  let _client: INaverAdsClient | undefined = deps.client;
-  const getClient = (): INaverAdsClient => {
-    if (_client) return _client;
+  // Resolve account store lazily — env-only mode only fails when a tool is called.
+  let _store: IAccountStore | undefined = deps.accountStore;
+  function getStore(): IAccountStore {
+    if (_store) return _store;
     const loader = deps.credentialLoader ?? new EnvCredentialLoader();
-    const credentials = loader.load();
-    _client = new NaverAdsClient({
-      baseUrl: BASE_URL,
-      credentials,
-      fetch: deps.fetch,
-    });
-    return _client;
-  };
+    const cred = loader.load();
+    const accounts = new Map<string, NaverAdsCredentials>();
+    accounts.set("default", cred);
+    _store = new MapAccountStore({ accounts, defaultName: "default" });
+    return _store;
+  }
+
+  const factory =
+    deps.clientFactory ??
+    ((cred: NaverAdsCredentials) =>
+      new NaverAdsClient({
+        baseUrl: BASE_URL,
+        credentials: cred,
+        fetch: deps.fetch,
+      }));
+
+  const clientCache = new Map<string, INaverAdsClient>();
+
+  function resolveClient(accountName?: string): INaverAdsClient {
+    // When an explicit `accountStore` is provided, validate the account name
+    // through the store first so unknown names fail before any request runs
+    // (even on the test path that supplies a fixed `client` override).
+    if (deps.accountStore !== undefined) {
+      const cred = deps.accountStore.get(accountName);
+      if (deps.client) return deps.client;
+      return cachedClient(cred);
+    }
+    // No store passed: tests may inject a `client` override directly without
+    // any credentials at all (mcp.test.ts). Fall back to the legacy lazy path.
+    if (deps.client) return deps.client;
+    const cred = getStore().get(accountName);
+    return cachedClient(cred);
+  }
+
+  function cachedClient(cred: NaverAdsCredentials): INaverAdsClient {
+    // Cache key = credential's customerId. Collapses `account: undefined` and
+    // `account: <default-name>` into a single entry instead of building two
+    // clients for the same credential.
+    const key = cred.customerId;
+    let client = clientCache.get(key);
+    if (client === undefined) {
+      client = factory(cred);
+      clientCache.set(key, client);
+    }
+    return client;
+  }
 
   // ---------------------------------------------------------------------------
-  // Tool implementations (exported for tests)
+  // Tool implementations
   // ---------------------------------------------------------------------------
 
-  const tool_validate_credentials = async () => {
+  const tool_validate_credentials = async (args: { account?: string } = {}) => {
     try {
-      const client = getClient();
+      // Validate account name shape before resolving (regex-fail returns generic).
+      const parsed = NoArgsSchema.safeParse(args);
+      if (!parsed.success) {
+        return { ok: false, error: "Invalid account identifier" };
+      }
+      const client = resolveClient(parsed.data.account);
       await client.get("/billing/bizmoney");
       return { ok: true, message: "Credentials are valid" };
     } catch (err) {
-      // Classify by status without leaking credential values.
+      if (err instanceof AccountNotFoundError) {
+        return { ok: false, error: "Account not found" };
+      }
       if (err instanceof NaverAdsApiError) {
         if (err.status === 401 || err.status === 403) {
           return { ok: false, error: `Authentication failed (${err.status})` };
@@ -189,15 +272,28 @@ export function createServer(deps: ServerDeps = {}): {
     ],
   });
 
+  const tool_list_accounts = () => {
+    const store = getStore();
+    return {
+      accounts: store.list(),
+      default: store.default() ?? null,
+    };
+  };
+
   const tool_fetch_raw_data = async (
-    args: z.infer<typeof FetchRawDataSchema>
+    args: z.infer<typeof FetchRawDataSchema>,
   ) => {
-    const { reportTp, startDate, endDate } = args;
-    const client = getClient();
+    const { reportTp, startDate, endDate, account } = args;
+    const client = resolveClient(account);
     const dates = enumerateDates(startDate, endDate);
     const allRows: Record<string, string>[] = [];
     for (const statDt of dates) {
-      const result = await requestStatReport({ client, reportTp, statDt, fetch: deps.fetch });
+      const result = await requestStatReport({
+        client,
+        reportTp,
+        statDt,
+        fetch: deps.fetch,
+      });
       allRows.push(...result.rows);
     }
     return {
@@ -210,13 +306,12 @@ export function createServer(deps: ServerDeps = {}): {
   };
 
   const tool_generate_report = async (
-    args: z.infer<typeof GenerateReportSchema>
+    args: z.infer<typeof GenerateReportSchema>,
   ) => {
-    const { startDate, endDate, outputPath } = args;
-    const client = getClient();
+    const { startDate, endDate, outputPath, account } = args;
+    const client = resolveClient(account);
     const dates = enumerateDates(startDate, endDate);
 
-    // Step 1: fetch metadata in parallel
     const [campaigns, adGroups, keywords, products] = await Promise.all([
       getCampaigns(client),
       getAdGroups(client),
@@ -224,14 +319,18 @@ export function createServer(deps: ServerDeps = {}): {
       getProducts(client),
     ]);
 
-    // Step 2: fetch all report types — each wrapped in try/catch
     const fetchAll = async (
-      reportTp: (typeof REPORT_TYPES)[number]
+      reportTp: (typeof REPORT_TYPES)[number],
     ): Promise<Record<string, string>[]> => {
       try {
         const rows: Record<string, string>[] = [];
         for (const statDt of dates) {
-          const result = await requestStatReport({ client, reportTp, statDt, fetch: deps.fetch });
+          const result = await requestStatReport({
+            client,
+            reportTp,
+            statDt,
+            fetch: deps.fetch,
+          });
           rows.push(...result.rows);
         }
         return rows;
@@ -258,13 +357,11 @@ export function createServer(deps: ServerDeps = {}): {
       fetchAll("SHOPPINGBRANDPRODUCT_CONVERSION"),
     ]);
 
-    // Step 3: build raw sheets
     const rawDaily = await buildDailyRaw({
       startDate,
       endDate,
       fetched: { op: adRows, conv: adConvRows, campaigns, adGroups },
     });
-
     const rawKeyword = await buildKeywordRaw({
       startDate,
       endDate,
@@ -276,13 +373,11 @@ export function createServer(deps: ServerDeps = {}): {
         keywords,
       },
     });
-
     const rawSearchTerm = await buildSearchTermRaw({
       startDate,
       endDate,
       fetched: { op: expkwRows, conv: [], campaigns, adGroups },
     });
-
     const rawMaterial = await buildMaterialRaw({
       startDate,
       endDate,
@@ -295,7 +390,6 @@ export function createServer(deps: ServerDeps = {}): {
       },
     });
 
-    // Step 4: build pivot sheets
     const allDaily = [...rawDaily, ...rawKeyword];
     const pivotSummary = buildSummary(allDaily);
     const pivotMedia = buildMediaPerformance(allDaily);
@@ -303,8 +397,7 @@ export function createServer(deps: ServerDeps = {}): {
     const pivotProduct = buildProductPerformance(rawMaterial);
     const pivotSearchTerm = buildSearchTermPerformance(rawSearchTerm);
 
-    // Step 5: write Excel
-    const result = await writeReport({
+    return await writeReport({
       outputPath,
       data: {
         rawDaily,
@@ -318,8 +411,6 @@ export function createServer(deps: ServerDeps = {}): {
         pivotSearchTerm,
       },
     });
-
-    return result;
   };
 
   // ---------------------------------------------------------------------------
@@ -327,28 +418,42 @@ export function createServer(deps: ServerDeps = {}): {
   // ---------------------------------------------------------------------------
 
   const server = new Server(
-    { name: "naver-ads-mcp", version: "0.1.0" },
-    { capabilities: { tools: {} } }
+    { name: "naver-ads-mcp", version: "0.2.0" },
+    { capabilities: { tools: {} } },
   );
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: [
       {
         name: "validate_credentials",
-        description: "Validate Naver Ads API credentials by calling a lightweight endpoint.",
-        inputSchema: { type: "object", properties: {}, required: [] },
+        description:
+          "Validate Naver Ads API credentials by calling a lightweight endpoint.",
+        inputSchema: {
+          type: "object",
+          properties: { account: ACCOUNT_SCHEMA_FRAG },
+          required: [],
+        },
       },
       {
         name: "list_report_types",
-        description: "List supported Naver Ads report types with descriptions and retention periods.",
+        description:
+          "List supported Naver Ads report types with descriptions and retention periods.",
+        inputSchema: { type: "object", properties: {}, required: [] },
+      },
+      {
+        name: "list_accounts",
+        description:
+          "List configured Naver Ads accounts (name + customerId only — never licenses or secrets).",
         inputSchema: { type: "object", properties: {}, required: [] },
       },
       {
         name: "fetch_raw_data",
-        description: "Fetch raw stat report rows for a date range and report type.",
+        description:
+          "Fetch raw stat report rows for a date range and report type.",
         inputSchema: {
           type: "object",
           properties: {
+            account: ACCOUNT_SCHEMA_FRAG,
             reportTp: {
               type: "string",
               enum: REPORT_TYPES as unknown as string[],
@@ -366,6 +471,7 @@ export function createServer(deps: ServerDeps = {}): {
         inputSchema: {
           type: "object",
           properties: {
+            account: ACCOUNT_SCHEMA_FRAG,
             startDate: { ...YYYYMMDD, description: "Start date YYYYMMDD" },
             endDate: { ...YYYYMMDD, description: "End date YYYYMMDD" },
             outputPath: {
@@ -379,11 +485,10 @@ export function createServer(deps: ServerDeps = {}): {
     ],
   }));
 
-  /** Run a tool whose args must pass `schema.safeParse`, formatting Zod errors uniformly. */
   const runValidated = async <S extends z.ZodTypeAny>(
     schema: S,
     rawArgs: unknown,
-    fn: (args: z.infer<S>) => Promise<unknown>
+    fn: (args: z.infer<S>) => Promise<unknown>,
   ) => {
     const parsed = schema.safeParse(rawArgs);
     if (!parsed.success) {
@@ -404,13 +509,23 @@ export function createServer(deps: ServerDeps = {}): {
     try {
       switch (name) {
         case "validate_credentials":
-          return { content: toContentText(await tool_validate_credentials()) };
+          return runValidated(
+            NoArgsSchema,
+            rawArgs ?? {},
+            tool_validate_credentials,
+          );
         case "list_report_types":
           return { content: toContentText(tool_list_report_types()) };
+        case "list_accounts":
+          return { content: toContentText(tool_list_accounts()) };
         case "fetch_raw_data":
           return runValidated(FetchRawDataSchema, rawArgs, tool_fetch_raw_data);
         case "generate_report":
-          return runValidated(GenerateReportSchema, rawArgs, tool_generate_report);
+          return runValidated(
+            GenerateReportSchema,
+            rawArgs,
+            tool_generate_report,
+          );
         default:
           return {
             content: toContentText({ error: `Unknown tool: ${name}` }),
@@ -431,8 +546,12 @@ export function createServer(deps: ServerDeps = {}): {
     tools: {
       validate_credentials: tool_validate_credentials,
       list_report_types: tool_list_report_types,
+      list_accounts: tool_list_accounts,
       fetch_raw_data: tool_fetch_raw_data,
       generate_report: tool_generate_report,
     },
   };
 }
+
+// Re-export for cli.ts
+export { StdioServerTransport };

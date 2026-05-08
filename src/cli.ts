@@ -2,12 +2,19 @@
 import "dotenv/config";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { createServer } from "./mcp/server.js";
+import { loadAccountStore } from "./runtime/account-bootstrap.js";
 
 async function main() {
-  const { server } = createServer();
+  // Resolve the account store eagerly so config errors fail fast at startup.
+  // Falls back to legacy single-account env vars if accounts.json is missing.
+  const accountStore = loadAccountStore();
+  const { server } = createServer({ accountStore });
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("naver-ads-mcp: MCP server connected via stdio");
+  console.error(
+    `naver-ads-mcp: MCP server connected via stdio ` +
+      `(${accountStore.list().length} account(s), default=${accountStore.default() ?? "—"})`,
+  );
 }
 
 main().catch((e) => {

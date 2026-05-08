@@ -4,7 +4,7 @@
 
 | From                                                                             | May import                                                        | Forbidden             |
 | -------------------------------------------------------------------------------- | ----------------------------------------------------------------- | --------------------- |
-| L1 (`src/cli.ts`, `src/mcp/`, `src/index.ts`)                                    | All other layers                                                  | None internal         |
+| L1 (`src/cli.ts`, `src/mcp/`, `src/runtime/`, `src/index.ts`)                    | All other layers + `node:fs`, `node:path`, `node:os`              | None internal         |
 | L2 (`src/raw/`, `src/pivot/`, `src/excel/`, `src/util/`)                         | L3 (api/types.ts only for raw/pivot), L4 (config — util 제외), L5 | L1 (no upward import) |
 | L3 (`src/api/`)                                                                  | L4 (config), L5                                                   | L1, L2                |
 | L4 (`src/config/`)                                                               | L5 only                                                           | L1, L2, L3            |
@@ -13,8 +13,9 @@
 ### 세부 허용 엣지
 
 ```
-src/cli.ts          → src/mcp/server only
+src/cli.ts          → src/mcp/server, src/runtime/*
 src/mcp/*           → all layers below (L2, L3, L4, L5)
+src/runtime/*       → src/config/* + node:fs, node:path  (file/env IO 전용 L1 helper)
 src/index.ts        → all layers below
 
 src/raw/*           → src/api/types.ts (INaverAdsClient 인터페이스만), src/util/

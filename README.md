@@ -29,9 +29,40 @@
    - `ACCESS_LICENSE`
    - `SECRET_KEY`
 
-### 2. `.env` 작성
+### 2. 자격증명 등록
 
-프로젝트 루트의 `.env.example`을 참고하여 `.env` 파일을 생성:
+자격증명은 두 가지 방식 중 하나로 등록할 수 있습니다 (우선순위 순):
+
+#### A. `accounts.json` — 다중 광고주 (권장)
+
+여러 광고주를 한 번에 관리할 수 있는 레지스트리. 프로젝트 루트의 `accounts.example.json`을 참고하여 `accounts.json`을 생성:
+
+```json
+{
+  "default": "primary",
+  "accounts": {
+    "primary": {
+      "customerId": "...",
+      "accessLicense": "...",
+      "secretKey": "..."
+    },
+    "secondary": {
+      "customerId": "...",
+      "accessLicense": "...",
+      "secretKey": "..."
+    }
+  }
+}
+```
+
+- `chmod 600 accounts.json` 권장 (다른 사용자 읽기 차단)
+- 위치 변경: `NAVER_ADS_ACCOUNTS_PATH=/secure/path/accounts.json` 환경변수
+- 계정 식별자(`primary` 등)는 `^[a-zA-Z0-9_-]{1,64}$` 형식만 허용 — LLM 대화 transcript 노출 방지를 위해 광고주 실명보다 `acc1`, `client-001` 같은 opaque label 권장
+- `accounts.json`은 `.gitignore`에 등록되어 있음 (절대 커밋 금지)
+
+#### B. `.env` 단일 광고주 — 레거시 fallback
+
+`accounts.json`이 없으면 자동으로 단일 광고주 `default`로 동작:
 
 ```
 NAVER_ADS_CUSTOMER_ID=your-customer-id
@@ -44,8 +75,9 @@ NAVER_ADS_SECRET_KEY=your-secret-key
 ### 3. 키 회전 (Key Rotation) 절차
 
 - 키 유출이 의심되거나 발급자 퇴사 시 즉시 회전
-- 절차: 네이버 검색광고 센터 → 도구 → API 사용관리 → 기존 키 폐기 → 새 키 발급 → `.env` 업데이트
-- 회전 후 `npm start`로 서버 재기동 후 `validate_credentials` 도구로 검증 권장
+- 절차: 네이버 검색광고 센터 → 도구 → API 사용관리 → 기존 키 폐기 → 새 키 발급 → `accounts.json` 또는 `.env` 갱신
+- 회전 후 **MCP 서버 재시작 필수** (자격증명은 첫 도구 호출 시 한 번만 로드 — 핫리로드 없음)
+- 재시작 후 `validate_credentials({account: "..."})` 도구로 검증 권장
 
 ## 설치
 
@@ -100,12 +132,15 @@ npm start
 
 ## 제공하는 MCP Tools
 
-| 도구                   | 인자                                                 | 반환                                                          |
-| ---------------------- | ---------------------------------------------------- | ------------------------------------------------------------- |
-| `validate_credentials` | 없음                                                 | `{ok, message}` — 자격증명 유효성 검증                        |
-| `list_report_types`    | 없음                                                 | 지원하는 10개 reportTp 목록 + 보관 기간 + 설명                |
-| `fetch_raw_data`       | `{reportTp, startDate(YYYYMMDD), endDate(YYYYMMDD)}` | `{rows, count, reportTp}`                                     |
-| `generate_report`      | `{startDate, endDate, outputPath}`                   | `{path, sheetNames, visibility, rowCount}` — 10시트 xlsx 생성 |
+모든 도구는 선택적 `account?: string` 인자를 받습니다. 미지정 시 `accounts.json`의 `default` 광고주 (또는 legacy `.env`의 `default`) 사용.
+
+| 도구                   | 인자                                                           | 반환                                                          |
+| ---------------------- | -------------------------------------------------------------- | ------------------------------------------------------------- |
+| `validate_credentials` | `{account?}`                                                   | `{ok, message}` — 자격증명 유효성 검증                        |
+| `list_report_types`    | 없음                                                           | 지원하는 10개 reportTp 목록 + 보관 기간 + 설명                |
+| `list_accounts`        | 없음                                                           | `{accounts: [{name, customerId}], default}` — 시크릿 미반환   |
+| `fetch_raw_data`       | `{account?, reportTp, startDate(YYYYMMDD), endDate(YYYYMMDD)}` | `{rows, count, reportTp}`                                     |
+| `generate_report`      | `{account?, startDate, endDate, outputPath}`                   | `{path, sheetNames, visibility, rowCount}` — 10시트 xlsx 생성 |
 
 ## 데이터 보관 기간 (Naver 공식)
 

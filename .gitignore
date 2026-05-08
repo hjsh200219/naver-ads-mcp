@@ -3,6 +3,7 @@
 .env.local
 *.key
 *.pem
+accounts.json
 
 # Node
 node_modules/

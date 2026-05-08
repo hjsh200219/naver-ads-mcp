@@ -21,7 +21,7 @@ function makeFetchWithTsv(tsvContent: string): typeof globalThis.fetch {
       gzipped.copy(copy);
       return copy.buffer.slice(
         copy.byteOffset,
-        copy.byteOffset + copy.byteLength
+        copy.byteOffset + copy.byteLength,
       ) as ArrayBuffer;
     },
   })) as unknown as typeof globalThis.fetch;
@@ -66,15 +66,16 @@ describe("createServer", () => {
     expect(tools).toBeDefined();
   });
 
-  it("exposes exactly 4 tools", () => {
+  it("exposes exactly 5 tools", () => {
     const { tools } = createServer({
       credentialLoader: mockLoader,
       client: mockClient,
     });
     const toolNames = Object.keys(tools);
-    expect(toolNames).toHaveLength(4);
+    expect(toolNames).toHaveLength(5);
     expect(toolNames).toContain("validate_credentials");
     expect(toolNames).toContain("list_report_types");
+    expect(toolNames).toContain("list_accounts");
     expect(toolNames).toContain("fetch_raw_data");
     expect(toolNames).toContain("generate_report");
   });
@@ -94,7 +95,7 @@ describe("validate_credentials tool", () => {
 
   it("returns ok:false on error and does not leak credentials", async () => {
     vi.mocked(mockClient.get).mockRejectedValueOnce(
-      new Error("Authentication failed (401)")
+      new Error("Authentication failed (401)"),
     );
     const { tools } = createServer({ client: mockClient });
     const result = (await tools.validate_credentials()) as {
@@ -113,7 +114,7 @@ describe("validate_credentials tool", () => {
   it("classifies NaverAdsApiError 401 as authentication failure", async () => {
     const { NaverAdsApiError } = await import("../src/api/client.js");
     vi.mocked(mockClient.get).mockRejectedValueOnce(
-      new NaverAdsApiError("unauthorized", 401)
+      new NaverAdsApiError("unauthorized", 401),
     );
     const { tools } = createServer({ client: mockClient });
     const result = (await tools.validate_credentials()) as {
@@ -127,7 +128,7 @@ describe("validate_credentials tool", () => {
   it("classifies NaverAdsApiError 5xx as server unavailable", async () => {
     const { NaverAdsApiError } = await import("../src/api/client.js");
     vi.mocked(mockClient.get).mockRejectedValueOnce(
-      new NaverAdsApiError("oops", 503)
+      new NaverAdsApiError("oops", 503),
     );
     const { tools } = createServer({ client: mockClient });
     const result = (await tools.validate_credentials()) as {
@@ -177,9 +178,7 @@ describe("fetch_raw_data tool", () => {
       downloadUrl: "http://example.com/report.tsv.gz",
     });
 
-    const mockFetch = makeFetchWithTsv(
-      "nccCampaignId\tsalesAmt\n123\t5000\n"
-    );
+    const mockFetch = makeFetchWithTsv("nccCampaignId\tsalesAmt\n123\t5000\n");
 
     const { tools } = createServer({
       client: mockClient,
@@ -243,10 +242,7 @@ describe("generate_report tool", () => {
       fetch: mockFetch,
     });
 
-    const outputPath = path.join(
-      os.tmpdir(),
-      `mcp-test-${Date.now()}.xlsx`
-    );
+    const outputPath = path.join(os.tmpdir(), `mcp-test-${Date.now()}.xlsx`);
     try {
       const result = (await tools.generate_report({
         startDate: "20240101",

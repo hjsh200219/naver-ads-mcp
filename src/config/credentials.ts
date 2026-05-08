@@ -8,6 +8,39 @@ export interface ICredentialLoader {
   load(): NaverAdsCredentials;
 }
 
+/**
+ * Builds a `NaverAdsCredentials` whose `accessLicense`/`secretKey` are
+ * non-enumerable, so they are never exposed by `JSON.stringify`,
+ * `console.log`, or object spread. Used by env loader and the multi-account
+ * bootstrap; tests use it to build fixtures with the same invariant.
+ */
+export function freezeCredential(
+  customerId: string,
+  accessLicense: string,
+  secretKey: string,
+): NaverAdsCredentials {
+  const cred = {} as NaverAdsCredentials;
+  Object.defineProperty(cred, "customerId", {
+    value: customerId,
+    enumerable: true,
+    writable: false,
+    configurable: false,
+  });
+  Object.defineProperty(cred, "accessLicense", {
+    value: accessLicense,
+    enumerable: false,
+    writable: false,
+    configurable: false,
+  });
+  Object.defineProperty(cred, "secretKey", {
+    value: secretKey,
+    enumerable: false,
+    writable: false,
+    configurable: false,
+  });
+  return cred;
+}
+
 export class MissingCredentialError extends Error {
   constructor(keyName: string) {
     super(`Missing required env var: ${keyName}`);
@@ -48,7 +81,9 @@ export class EnvCredentialLoader implements ICredentialLoader {
 
   load(): NaverAdsCredentials {
     const rawCustomerId = this.getEnvValue(EnvCredentialLoader.KEY_CUSTOMER_ID);
-    const rawAccessLicense = this.getEnvValue(EnvCredentialLoader.KEY_ACCESS_LICENSE);
+    const rawAccessLicense = this.getEnvValue(
+      EnvCredentialLoader.KEY_ACCESS_LICENSE,
+    );
     const rawSecretKey = this.getEnvValue(EnvCredentialLoader.KEY_SECRET_KEY);
 
     if (rawCustomerId === undefined || rawCustomerId.trim() === "") {
@@ -61,32 +96,10 @@ export class EnvCredentialLoader implements ICredentialLoader {
       throw new MissingCredentialError(EnvCredentialLoader.KEY_SECRET_KEY);
     }
 
-    const customerId = rawCustomerId.trim();
-    const accessLicense = rawAccessLicense.trim();
-    const secretKey = rawSecretKey.trim();
-
-    // Build result with secret fields as non-enumerable to prevent leakage
-    // via console.log(), JSON.stringify(), or object spread.
-    const cred = {} as NaverAdsCredentials;
-    Object.defineProperty(cred, "customerId", {
-      value: customerId,
-      enumerable: true,
-      writable: false,
-      configurable: false,
-    });
-    Object.defineProperty(cred, "accessLicense", {
-      value: accessLicense,
-      enumerable: false,
-      writable: false,
-      configurable: false,
-    });
-    Object.defineProperty(cred, "secretKey", {
-      value: secretKey,
-      enumerable: false,
-      writable: false,
-      configurable: false,
-    });
-
-    return cred;
+    return freezeCredential(
+      rawCustomerId.trim(),
+      rawAccessLicense.trim(),
+      rawSecretKey.trim(),
+    );
   }
 }
