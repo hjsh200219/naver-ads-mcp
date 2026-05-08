@@ -6,6 +6,13 @@
 
 Be concise. No filler. Straight to the point. Use fewer words.
 
+## 세션 시작 시 필수
+
+새 세션 시작 시 다음 파일을 반드시 읽어 이전 세션 컨텍스트를 파악한다:
+
+1. `.claude-project/HANDOFF.md` — 이전 세션 인계서
+2. `.claude-project/memory/MEMORY.md` — 프로젝트 메모리 인덱스
+
 ## 프로젝트 개요
 
 TypeScript MCP server that automates Naver Search Ad data collection and generates the helloMAX 10-sheet Excel report. Brand search 영역별 성과는 Naver API 미지원으로 placeholder. (참조: GitHub Issue naver/searchad-apidoc#1072)
