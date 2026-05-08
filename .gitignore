@@ -16,6 +16,7 @@ coverage/
 
 # OMC state (local-only)
 .omc/state/
+.omc/sessions/
 .omc/notepad.md
 .omc/project-memory.json
 .omc/research/

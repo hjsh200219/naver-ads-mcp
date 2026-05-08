@@ -1,0 +1,965 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HelloMax PRO — 주간 AI 리포트 코멘트 (비셰프)</title>
+<style>
+  :root {
+    --primary: #1A5C9A;
+    --accent:  #2E86DE;
+    --light:   #EAF3FB;
+    --green:   #27AE60;
+    --red:     #E74C3C;
+    --orange:  #F39C12;
+    --bg:      #F4F6F9;
+    --card:    #FFFFFF;
+    --border:  #DCE6F0;
+    --text:    #1C2B3A;
+    --muted:   #6C7D8E;
+    --radius:  10px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; background: var(--bg); color: var(--text); font-size: 14px; }
+
+  /* ── Top Nav ── */
+  .topnav {
+    background: var(--primary);
+    padding: 0 28px;
+    height: 52px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky; top: 0; z-index: 100;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+  }
+  .topnav .logo { color: #fff; font-size: 20px; font-weight: 700; letter-spacing: -0.5px; }
+  .topnav .logo span { color: #7EC8F7; }
+  .topnav .nav-info { color: rgba(255,255,255,0.75); font-size: 12px; }
+  .topnav .badge-ai {
+    background: linear-gradient(135deg,#7EC8F7,#2E86DE);
+    color: #fff; font-size: 11px; font-weight: 700;
+    padding: 3px 10px; border-radius: 20px; margin-left: 10px;
+  }
+
+  /* ── Layout ── */
+  .page { max-width: 1180px; margin: 0 auto; padding: 24px 20px 60px; }
+
+  /* ── Page Header ── */
+  .pg-header {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px 24px;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .pg-header .left h1 { font-size: 20px; font-weight: 700; color: var(--primary); }
+  .pg-header .left .sub { font-size: 13px; color: var(--muted); margin-top: 4px; }
+  .pg-header .left .sub strong { color: var(--text); }
+  .pg-header .meta-pills { display: flex; gap: 8px; flex-wrap: wrap; }
+  .pill {
+    padding: 5px 14px; border-radius: 20px; font-size: 12px; font-weight: 600;
+    border: 1px solid;
+  }
+  .pill-blue { background: var(--light); color: var(--primary); border-color: #9BBFE0; }
+  .pill-green { background: #E8F8EF; color: #1E8449; border-color: #A9DFBF; }
+  .pill-orange { background: #FEF9E7; color: #B7770D; border-color: #F9E79F; }
+
+  /* ── Step indicator ── */
+  .step-bar {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    margin-bottom: 22px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .step-item {
+    flex: 1; padding: 12px 16px; display: flex; align-items: center; gap: 8px;
+    font-size: 12px; color: var(--muted); border-right: 1px solid var(--border);
+  }
+  .step-item:last-child { border-right: none; }
+  .step-item.done { background: #E8F8EF; color: #1E8449; }
+  .step-item.active { background: var(--light); color: var(--primary); font-weight: 700; }
+  .step-num {
+    width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center;
+    justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0;
+    background: var(--border); color: var(--muted);
+  }
+  .step-item.done .step-num { background: var(--green); color: #fff; }
+  .step-item.active .step-num { background: var(--accent); color: #fff; }
+
+  /* ── KPI Cards ── */
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 12px;
+    margin-bottom: 22px;
+  }
+  @media(max-width:900px){ .kpi-grid { grid-template-columns: repeat(3,1fr); } }
+  .kpi-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    position: relative;
+    overflow: hidden;
+  }
+  .kpi-card::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    background: var(--accent);
+  }
+  .kpi-card.red::before { background: var(--red); }
+  .kpi-card.green::before { background: var(--green); }
+  .kpi-card.orange::before { background: var(--orange); }
+  .kpi-label { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 6px; }
+  .kpi-value { font-size: 20px; font-weight: 700; color: var(--text); line-height: 1; }
+  .kpi-value sub { font-size: 11px; font-weight: 400; color: var(--muted); vertical-align: baseline; }
+  .kpi-delta {
+    margin-top: 6px; font-size: 12px; font-weight: 600;
+    display: flex; align-items: center; gap: 3px;
+  }
+  .kpi-delta.up { color: var(--green); }
+  .kpi-delta.down { color: var(--red); }
+  .kpi-delta .arrow { font-size: 14px; }
+  .kpi-prev { font-size: 11px; color: var(--muted); margin-top: 3px; }
+
+  /* ── Media breakdown ── */
+  .media-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin-bottom: 22px;
+  }
+  .media-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .media-card .mc-head {
+    background: var(--light);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 16px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .mc-head h3 { font-size: 13px; font-weight: 700; color: var(--primary); }
+  .mc-head .mc-badge {
+    font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 10px;
+  }
+  .mc-badge.up { background: #D5F5E3; color: #1E8449; }
+  .mc-badge.down { background: #FDEDEC; color: #C0392B; }
+  .mc-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .mc-table th { background: #F8FAFC; color: var(--muted); font-size: 11px; padding: 7px 12px; text-align: right; border-bottom: 1px solid var(--border); }
+  .mc-table th:first-child { text-align: left; }
+  .mc-table td { padding: 7px 12px; border-bottom: 1px solid #F0F4F8; text-align: right; }
+  .mc-table td:first-child { text-align: left; font-weight: 600; color: var(--text); }
+  .mc-table tr:last-child td { border-bottom: none; }
+  .val-up { color: var(--green); font-weight: 600; }
+  .val-down { color: var(--red); font-weight: 600; }
+  .val-neu { color: var(--muted); }
+  .device-tag {
+    display: inline-block;
+    font-size: 10px; padding: 1px 6px; border-radius: 8px; margin-left: 4px;
+    font-weight: 500;
+  }
+  .device-tag.pc { background:#EBF5FB; color:#2980B9; }
+  .device-tag.mo { background:#E8F8EF; color:#1E8449; }
+
+  /* ── AI Comment Sections ── */
+  .section-label {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 12px;
+  }
+  .section-label h2 { font-size: 15px; font-weight: 700; color: var(--primary); }
+  .ai-badge {
+    background: linear-gradient(135deg,#667eea,#764ba2);
+    color: #fff; font-size: 10px; font-weight: 700;
+    padding: 2px 8px; border-radius: 10px;
+    letter-spacing: 0.3px;
+  }
+  .section-label .edit-hint {
+    margin-left: auto; font-size: 11px; color: var(--muted);
+    display: flex; align-items: center; gap: 4px;
+  }
+  .ai-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 18px;
+    overflow: hidden;
+  }
+  .ai-card-head {
+    padding: 12px 18px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 10px;
+    background: var(--light);
+  }
+  .ai-card-head .icon { font-size: 18px; }
+  .ai-card-head h3 { font-size: 14px; font-weight: 700; color: var(--primary); }
+  .ai-card-body { padding: 16px 18px; }
+
+  /* Review text */
+  .review-block { position: relative; }
+  .review-textarea {
+    width: 100%; min-height: 130px;
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    font-family: inherit;
+    font-size: 13.5px;
+    line-height: 1.8;
+    color: var(--text);
+    resize: vertical;
+    transition: border-color .2s;
+    background: #FAFCFF;
+  }
+  .review-textarea:focus { outline: none; border-color: var(--accent); background: #fff; }
+  .review-tip {
+    margin-top: 6px; font-size: 11px; color: var(--muted);
+    display: flex; align-items: center; gap: 4px;
+  }
+
+  /* Insight list */
+  .insight-list { list-style: none; display: flex; flex-direction: column; gap: 10px; }
+  .insight-item {
+    display: flex; gap: 12px; align-items: flex-start;
+    background: #FAFCFF;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    position: relative;
+  }
+  .insight-item:hover { border-color: var(--accent); }
+  .insight-icon {
+    width: 32px; height: 32px; border-radius: 8px; display: flex;
+    align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0;
+  }
+  .insight-icon.good { background: #D5F5E3; }
+  .insight-icon.warn { background: #FDEBD0; }
+  .insight-icon.info { background: var(--light); }
+  .insight-icon.bad  { background: #FDEDEC; }
+  .insight-text { flex: 1; }
+  .insight-text .it-tag {
+    font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 8px;
+    margin-bottom: 5px; display: inline-block;
+  }
+  .it-tag.good { background: #D5F5E3; color: #1E8449; }
+  .it-tag.warn { background: #FDEBD0; color: #B7770D; }
+  .it-tag.info { background: var(--light); color: var(--primary); }
+  .it-tag.bad  { background: #FDEDEC; color: #C0392B; }
+  .insight-text p { font-size: 13px; line-height: 1.65; color: var(--text); }
+  .insight-text .it-metric {
+    margin-top: 4px; font-size: 11.5px; color: var(--muted);
+    display: flex; gap: 12px; flex-wrap: wrap;
+  }
+  .it-metric span { display: flex; align-items: center; gap: 3px; }
+  .it-metric .m-up { color: var(--green); }
+  .it-metric .m-down { color: var(--red); }
+  .insight-del {
+    position: absolute; top: 8px; right: 8px;
+    width: 22px; height: 22px; border-radius: 50%; border: none;
+    background: transparent; cursor: pointer; color: var(--muted);
+    font-size: 14px; display: flex; align-items: center; justify-content: center;
+    opacity: 0;
+    transition: opacity .15s, background .15s;
+  }
+  .insight-item:hover .insight-del { opacity: 1; }
+  .insight-del:hover { background: #FDEDEC; color: var(--red); }
+
+  /* Action Items */
+  .action-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+  .action-item {
+    display: flex; gap: 12px; align-items: flex-start;
+    background: #FAFCFF;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+  }
+  .action-item input[type=checkbox] {
+    width: 16px; height: 16px; margin-top: 2px; flex-shrink: 0; cursor: pointer;
+    accent-color: var(--primary);
+  }
+  .action-item .action-text { flex: 1; }
+  .action-item .action-title { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 2px; }
+  .action-item .action-desc { font-size: 12px; color: var(--muted); line-height: 1.5; }
+  .action-item .action-priority {
+    font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 8px; flex-shrink: 0;
+    align-self: flex-start; margin-top: 2px;
+  }
+  .pri-high { background: #FDEDEC; color: #C0392B; }
+  .pri-mid  { background: #FDEBD0; color: #B7770D; }
+  .pri-low  { background: #EBF5FB; color: #2980B9; }
+
+  .add-action-btn {
+    width: 100%; margin-top: 10px;
+    padding: 9px; border-radius: 8px;
+    border: 1.5px dashed var(--border);
+    background: transparent; cursor: pointer;
+    font-size: 12px; color: var(--muted);
+    transition: border-color .2s, color .2s;
+  }
+  .add-action-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ── Email Preview ── */
+  .email-preview-box {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 22px;
+    overflow: hidden;
+  }
+  .ep-head {
+    background: #F8FAFC;
+    border-bottom: 1px solid var(--border);
+    padding: 12px 18px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .ep-head h3 { font-size: 13px; font-weight: 700; color: var(--text); }
+  .ep-head .ep-toggle {
+    margin-left: auto; font-size: 12px; color: var(--accent); cursor: pointer;
+    font-weight: 600; border: none; background: none;
+  }
+  .ep-body { padding: 18px; }
+  .ep-field { display: flex; gap: 12px; align-items: center; margin-bottom: 10px; font-size: 13px; }
+  .ep-field label { color: var(--muted); font-size: 12px; width: 50px; flex-shrink: 0; }
+  .ep-field .ep-val {
+    flex: 1; padding: 7px 12px; border: 1px solid var(--border); border-radius: 6px;
+    font-size: 13px; background: #FAFCFF; font-family: inherit;
+  }
+  .ep-field .ep-val:focus { outline: none; border-color: var(--accent); }
+  .ep-attach {
+    display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 8px 12px;
+    background: #F8FAFC; border: 1px solid var(--border); border-radius: 6px;
+    font-size: 12px; color: var(--muted);
+  }
+  .ep-attach .file-icon { font-size: 16px; }
+
+  /* ── Bottom Action Bar ── */
+  .action-bar {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: #fff;
+    border-top: 1px solid var(--border);
+    padding: 12px 32px;
+    display: flex; align-items: center; justify-content: space-between;
+    z-index: 99;
+    box-shadow: 0 -2px 12px rgba(0,0,0,0.06);
+  }
+  .action-bar .ab-left { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); }
+  .action-bar .ab-right { display: flex; gap: 10px; }
+  .btn {
+    padding: 10px 22px; border-radius: 8px; font-size: 13px; font-weight: 600;
+    cursor: pointer; border: none; transition: all .18s; font-family: inherit;
+  }
+  .btn-outline {
+    background: transparent; border: 1.5px solid var(--border); color: var(--text);
+  }
+  .btn-outline:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-secondary {
+    background: var(--light); color: var(--primary); border: 1.5px solid #9BBFE0;
+  }
+  .btn-secondary:hover { background: #D6EBFB; }
+  .btn-primary {
+    background: var(--primary); color: #fff;
+  }
+  .btn-primary:hover { background: #154E88; }
+  .btn-send {
+    background: linear-gradient(135deg, var(--green), #1E8449);
+    color: #fff;
+  }
+  .btn-send:hover { opacity: 0.9; }
+
+  /* ── Regenerate spinner overlay ── */
+  .regen-overlay {
+    display: none;
+    position: fixed; inset: 0; background: rgba(26,92,154,0.08);
+    backdrop-filter: blur(2px); z-index: 200;
+    align-items: center; justify-content: center;
+  }
+  .regen-overlay.show { display: flex; }
+  .regen-box {
+    background: #fff; border-radius: 14px; padding: 36px 48px;
+    display: flex; flex-direction: column; align-items: center; gap: 16px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.12);
+  }
+  .spinner {
+    width: 48px; height: 48px; border: 4px solid var(--light);
+    border-top-color: var(--accent); border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .regen-box p { font-size: 14px; color: var(--muted); }
+
+  /* ── Confirm toast ── */
+  .toast {
+    position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+    background: #1E8449; color: #fff; font-size: 14px; font-weight: 600;
+    padding: 12px 24px; border-radius: 30px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+    opacity: 0; pointer-events: none;
+    transition: opacity .3s;
+    z-index: 300;
+  }
+  .toast.show { opacity: 1; }
+
+  /* ── Divider section ── */
+  .section-divider {
+    border: none; border-top: 1px solid var(--border);
+    margin: 24px 0;
+  }
+
+  /* ── Timestamp chip ── */
+  .timestamp-chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 11px; color: var(--muted);
+    background: #F8FAFC; border: 1px solid var(--border);
+    padding: 3px 10px; border-radius: 20px;
+  }
+</style>
+</head>
+<body>
+
+<!-- Top Nav -->
+<nav class="topnav">
+  <div class="logo">hello<span>MAX</span> PRO</div>
+  <div style="display:flex;align-items:center;gap:8px;">
+    <span class="nav-info">주간리포트 AI 분석</span>
+    <span class="badge-ai">✦ AI 생성</span>
+  </div>
+  <div class="nav-info">AE: 홍길동 | 로그아웃</div>
+</nav>
+
+<div class="page">
+
+  <!-- Page Header -->
+  <div class="pg-header">
+    <div class="left">
+      <h1>비셰프 (디메이트) — 4월 4주차 주간 AI 리포트</h1>
+      <div class="sub">
+        분석 기간: <strong>2026.04.20 (월) ~ 04.26 (일)</strong> &nbsp;|&nbsp;
+        비교 기간: 2026.04.13 ~ 04.19 (전주) &nbsp;|&nbsp;
+        매체: 네이버 파워링크 + 쇼핑검색
+      </div>
+    </div>
+    <div class="meta-pills">
+      <span class="pill pill-blue">📁 업로드 완료</span>
+      <span class="pill pill-green">✦ AI 분석 완료</span>
+      <span class="pill pill-orange">⏳ AE 검토 중</span>
+    </div>
+  </div>
+
+  <!-- Step Bar -->
+  <div class="step-bar">
+    <div class="step-item done">
+      <div class="step-num">✓</div>
+      <span>엑셀 업로드</span>
+    </div>
+    <div class="step-item done">
+      <div class="step-num">✓</div>
+      <span>데이터 파싱</span>
+    </div>
+    <div class="step-item done">
+      <div class="step-num">✓</div>
+      <span>AI 분석</span>
+    </div>
+    <div class="step-item active">
+      <div class="step-num">4</div>
+      <span>AE 검토 &amp; 컨펌</span>
+    </div>
+    <div class="step-item">
+      <div class="step-num">5</div>
+      <span>광고주 발송</span>
+    </div>
+  </div>
+
+  <!-- KPI Cards -->
+  <div class="kpi-grid">
+    <div class="kpi-card">
+      <div class="kpi-label">총 노출수</div>
+      <div class="kpi-value">112,415</div>
+      <div class="kpi-delta up"><span class="arrow">▲</span>18.95%</div>
+      <div class="kpi-prev">전주 94,505</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">총 클릭수</div>
+      <div class="kpi-value">699</div>
+      <div class="kpi-delta up"><span class="arrow">▲</span>33.97%</div>
+      <div class="kpi-prev">전주 524</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">총 광고비</div>
+      <div class="kpi-value">45.8<sub>만원</sub></div>
+      <div class="kpi-delta down"><span class="arrow">▲</span>39.43%</div>
+      <div class="kpi-prev">전주 32.8만원</div>
+    </div>
+    <div class="kpi-card green">
+      <div class="kpi-label">총 전환수</div>
+      <div class="kpi-value">55<sub>건</sub></div>
+      <div class="kpi-delta up"><span class="arrow">▲</span>14.58%</div>
+      <div class="kpi-prev">전주 48건</div>
+    </div>
+    <div class="kpi-card green">
+      <div class="kpi-label">총 매출액</div>
+      <div class="kpi-value">236<sub>만원</sub></div>
+      <div class="kpi-delta up"><span class="arrow">▲</span>32.05%</div>
+      <div class="kpi-prev">전주 178.9만원</div>
+    </div>
+    <div class="kpi-card orange">
+      <div class="kpi-label">ROAS</div>
+      <div class="kpi-value">516<sub>%</sub></div>
+      <div class="kpi-delta down"><span class="arrow">▼</span>5.29%</div>
+      <div class="kpi-prev">전주 545%</div>
+    </div>
+  </div>
+
+  <!-- Media Breakdown -->
+  <div class="media-row">
+    <!-- 파워링크 -->
+    <div class="media-card">
+      <div class="mc-head">
+        <h3>📌 파워링크</h3>
+        <span class="mc-badge down">ROAS ▼ 10.4%</span>
+      </div>
+      <table class="mc-table">
+        <thead>
+          <tr>
+            <th>구분</th>
+            <th>노출</th>
+            <th>클릭</th>
+            <th>비용(원)</th>
+            <th>전환</th>
+            <th>매출(원)</th>
+            <th>ROAS</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>전체<span class="device-tag pc">TOTAL</span></td>
+            <td>51,031</td>
+            <td>320</td>
+            <td>254,467</td>
+            <td>9건</td>
+            <td>440,500</td>
+            <td class="val-down">173%</td>
+          </tr>
+          <tr>
+            <td>PC<span class="device-tag pc">PC</span></td>
+            <td>11,861</td>
+            <td>101</td>
+            <td>69,328</td>
+            <td>6건</td>
+            <td>369,400</td>
+            <td class="val-up">533%</td>
+          </tr>
+          <tr>
+            <td>모바일<span class="device-tag mo">MO</span></td>
+            <td>39,170</td>
+            <td>219</td>
+            <td>185,139</td>
+            <td>3건</td>
+            <td>71,100</td>
+            <td class="val-down">38%</td>
+          </tr>
+          <tr style="background:#FFF8F8">
+            <td>전주 비교</td>
+            <td class="val-up">+1.0%</td>
+            <td class="val-up">+13.9%</td>
+            <td class="val-up">+13.0%</td>
+            <td class="val-neu">±0</td>
+            <td class="val-up">+1.3%</td>
+            <td class="val-down">▼10.4%</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <!-- 쇼핑검색 -->
+    <div class="media-card">
+      <div class="mc-head">
+        <h3>🛒 쇼핑검색</h3>
+        <span class="mc-badge up">매출 ▲ 41.9%</span>
+      </div>
+      <table class="mc-table">
+        <thead>
+          <tr>
+            <th>구분</th>
+            <th>노출</th>
+            <th>클릭</th>
+            <th>비용(원)</th>
+            <th>전환</th>
+            <th>매출(원)</th>
+            <th>ROAS</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>전체<span class="device-tag pc">TOTAL</span></td>
+            <td>61,384</td>
+            <td>379</td>
+            <td>203,146</td>
+            <td>46건</td>
+            <td>1,922,480</td>
+            <td class="val-up">946%</td>
+          </tr>
+          <tr>
+            <td>PC<span class="device-tag pc">PC</span></td>
+            <td>13,100</td>
+            <td>66</td>
+            <td>31,747</td>
+            <td>2건</td>
+            <td>79,100</td>
+            <td class="val-down">249%</td>
+          </tr>
+          <tr>
+            <td>모바일<span class="device-tag mo">MO</span></td>
+            <td>48,284</td>
+            <td>313</td>
+            <td>171,399</td>
+            <td>44건</td>
+            <td>1,843,380</td>
+            <td class="val-up">1,075%</td>
+          </tr>
+          <tr style="background:#F0FFF6">
+            <td>전주 비교</td>
+            <td class="val-up">+39.6%</td>
+            <td class="val-up">+56.0%</td>
+            <td class="val-up">+97.4%</td>
+            <td class="val-up">+17.9%</td>
+            <td class="val-up">+41.9%</td>
+            <td class="val-down">▼28.1%</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ─── AI 실적 리뷰 ─── -->
+  <div class="section-label">
+    <h2>📝 실적 리뷰</h2>
+    <span class="ai-badge">✦ AI 생성</span>
+    <span class="edit-hint">✏️ 직접 수정 가능합니다</span>
+  </div>
+  <div class="ai-card">
+    <div class="ai-card-head">
+      <span class="icon">📋</span>
+      <h3>주간 성과 요약 — 광고주 전달용 리뷰 문단</h3>
+      <span class="timestamp-chip" style="margin-left:auto;">⏱ AI 생성 2026.04.28 09:14</span>
+    </div>
+    <div class="ai-card-body">
+      <div class="review-block">
+        <textarea class="review-textarea" id="reviewText">안녕하세요, 비셰프 담당자님.
+
+4월 4주차(4/20~4/26) 광고 운영 결과를 안내 드립니다.
+
+금주 총 광고비 457,614원(VAT 미포함) 집행 대비 매출 2,362,980원을 달성하여 전체 ROAS 516%로 마감하였습니다.
+전주 대비 매출은 +32.1% 증가하였으나, 광고비 증가폭(+39.4%)이 더 커 ROAS는 소폭 하락(▼5.3%p)하였습니다.
+
+▶ 파워링크
+전체 ROAS 173%로 전주(193%) 대비 하락하였습니다. PC 디바이스는 ROAS 533%의 높은 효율을 유지한 반면, 모바일 디바이스는 비용 185,139원 집행 대비 전환 3건 / 매출 71,100원으로 ROAS 38%에 그쳐 효율 개선이 필요합니다.
+
+▶ 쇼핑검색
+전체 ROAS 946%의 우수한 성과를 기록하였습니다. 특히 모바일에서 전환 44건 / 매출 1,843,380원 / ROAS 1,075%를 달성하며 금주 성과를 견인하였습니다. 쇼핑검색 비용은 전주 대비 +97.4% 증가하였으나, 매출도 +41.9% 동반 성장하여 의미 있는 성과를 보여주었습니다.
+
+다음 주 주요 최적화 방향을 함께 안내 드리오니 검토 부탁드립니다.</textarea>
+        <div class="review-tip">💡 AI가 생성한 초안입니다. 광고주 성향에 맞게 문구를 수정하신 후 컨펌해 주세요.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── 인사이트 ─── -->
+  <div class="section-label">
+    <h2>💡 주요 인사이트</h2>
+    <span class="ai-badge">✦ AI 생성</span>
+    <span class="edit-hint">✏️ 항목 추가·삭제·수정 가능</span>
+  </div>
+  <div class="ai-card">
+    <div class="ai-card-head">
+      <span class="icon">🔍</span>
+      <h3>AI 분석 인사이트 — 내부 참고용</h3>
+    </div>
+    <div class="ai-card-body">
+      <ul class="insight-list" id="insightList">
+
+        <li class="insight-item">
+          <div class="insight-icon good">🚀</div>
+          <div class="insight-text">
+            <span class="it-tag good">기회 포착</span>
+            <p><strong>쇼핑검색 모바일 ROAS 1,075%</strong> — 전주 대비 클릭 +73.9%, 전환 +41.9% 동반 성장 중. 모바일 예산 비중 확대 시 추가 매출 창출 여지 있음.</p>
+            <div class="it-metric">
+              <span>모바일 전환: <b class="m-up">44건</b></span>
+              <span>모바일 ROAS: <b class="m-up">1,075%</b></span>
+              <span>모바일 매출: <b class="m-up">1,843,380원</b></span>
+            </div>
+          </div>
+          <button class="insight-del" onclick="delInsight(this)" title="삭제">✕</button>
+        </li>
+
+        <li class="insight-item">
+          <div class="insight-icon bad">⚠️</div>
+          <div class="insight-text">
+            <span class="it-tag bad">즉시 개선 필요</span>
+            <p><strong>파워링크 모바일 ROAS 38%</strong> — 광고비 185,139원 집행 대비 전환 3건, 매출 71,100원에 불과. 비용 효율이 임계치(100%) 이하로 즉각적인 입찰가 조정 또는 예산 축소 필요.</p>
+            <div class="it-metric">
+              <span>모바일 비용: <b class="m-down">185,139원</b></span>
+              <span>모바일 전환: <b class="m-down">3건</b></span>
+              <span>모바일 ROAS: <b class="m-down">38%</b></span>
+            </div>
+          </div>
+          <button class="insight-del" onclick="delInsight(this)" title="삭제">✕</button>
+        </li>
+
+        <li class="insight-item">
+          <div class="insight-icon good">💎</div>
+          <div class="insight-text">
+            <span class="it-tag good">효율 유지</span>
+            <p><strong>파워링크 PC ROAS 533%</strong> — 전주(150%) 대비 대폭 상승. 클릭수 101건(전주 63건, +60.3%) 증가와 함께 전환 6건 달성. 현재 입찰 전략 유지 권장.</p>
+            <div class="it-metric">
+              <span>PC 클릭: <b class="m-up">101건 (▲60.3%)</b></span>
+              <span>PC 전환: <b class="m-up">6건 (▲200%)</b></span>
+              <span>PC ROAS: <b class="m-up">533%</b></span>
+            </div>
+          </div>
+          <button class="insight-del" onclick="delInsight(this)" title="삭제">✕</button>
+        </li>
+
+        <li class="insight-item">
+          <div class="insight-icon warn">📊</div>
+          <div class="insight-text">
+            <span class="it-tag warn">모니터링 필요</span>
+            <p><strong>쇼핑검색 비용 급증 (+97.4%)</strong> — 매출 성장(+41.9%)을 뛰어넘는 비용 증가로 쇼핑 ROAS 946%→946% 유지 중이나, 추가 비용 상승 시 효율 저하 우려. 소재별 비용 배분 점검 필요.</p>
+            <div class="it-metric">
+              <span>쇼핑 비용: <b class="m-down">+97.4%</b></span>
+              <span>쇼핑 매출: <b class="m-up">+41.9%</b></span>
+              <span>쇼핑 ROAS: 946%</span>
+            </div>
+          </div>
+          <button class="insight-del" onclick="delInsight(this)" title="삭제">✕</button>
+        </li>
+
+        <li class="insight-item">
+          <div class="insight-icon info">📅</div>
+          <div class="insight-text">
+            <span class="it-tag info">월 예산 현황</span>
+            <p><strong>4월 월 예산 소진율 점검</strong> — 파워링크 66.0%, 쇼핑검색 45.2% 소진(기간 진척률 86.7% 기준). 파워링크 예산 소진 속도가 빠른 편이나, 쇼핑검색은 잔여 예산 활용 여지 있음.</p>
+            <div class="it-metric">
+              <span>파워링크 소진: <b class="m-down">66.0%</b> / 기간 진척 86.7%</span>
+              <span>쇼핑검색 소진: <b class="m-up">45.2%</b></span>
+            </div>
+          </div>
+          <button class="insight-del" onclick="delInsight(this)" title="삭제">✕</button>
+        </li>
+
+      </ul>
+      <button class="add-action-btn" onclick="addInsight()">＋ 인사이트 직접 추가</button>
+    </div>
+  </div>
+
+  <!-- ─── Action Items ─── -->
+  <div class="section-label">
+    <h2>✅ Next Week Action Items</h2>
+    <span class="ai-badge">✦ AI 생성</span>
+    <span class="edit-hint">✏️ 체크·수정·추가 가능</span>
+  </div>
+  <div class="ai-card">
+    <div class="ai-card-head">
+      <span class="icon">🎯</span>
+      <h3>다음 주 권장 최적화 액션</h3>
+    </div>
+    <div class="ai-card-body">
+      <ul class="action-list">
+
+        <li class="action-item">
+          <input type="checkbox" id="a1">
+          <div class="action-text">
+            <div class="action-title">파워링크 모바일 입찰가 하향 조정</div>
+            <div class="action-desc">모바일 ROAS 38%는 효율 임계치 이하. 입찰 CPC를 현재 대비 20~30% 하향하여 불필요한 비용 소진 방지. 조정 후 3일간 전환 모니터링 필수.</div>
+          </div>
+          <span class="action-priority pri-high">긴급</span>
+        </li>
+
+        <li class="action-item">
+          <input type="checkbox" id="a2">
+          <div class="action-text">
+            <div class="action-title">쇼핑검색 모바일 일예산 상향 검토</div>
+            <div class="action-desc">모바일 ROAS 1,075%의 고효율 유지 중. 예산 소진으로 인한 기회 손실 방지를 위해 쇼핑검색 일예산 10~20% 상향 검토. 월 잔여 예산 확인 후 집행.</div>
+          </div>
+          <span class="action-priority pri-high">우선</span>
+        </li>
+
+        <li class="action-item">
+          <input type="checkbox" id="a3">
+          <div class="action-text">
+            <div class="action-title">파워링크 모바일 키워드·소재 성과 점검</div>
+            <div class="action-desc">모바일 비효율 키워드 추출 및 제외어 등록 검토. 전환 미발생 키워드 일시 OFF 또는 입찰가 최소화하여 예산을 PC 및 쇼핑검색으로 재배분.</div>
+          </div>
+          <span class="action-priority pri-mid">권장</span>
+        </li>
+
+        <li class="action-item">
+          <input type="checkbox" id="a4">
+          <div class="action-text">
+            <div class="action-title">파워링크 PC 입찰 전략 유지</div>
+            <div class="action-desc">PC ROAS 533%, 전주 대비 클릭 +60.3% 성장세 유지 중. 현행 입찰 전략 동일하게 유지하며 전환 트래킹 지속. 주간 ROAS 500% 이상 유지 목표.</div>
+          </div>
+          <span class="action-priority pri-low">유지</span>
+        </li>
+
+        <li class="action-item">
+          <input type="checkbox" id="a5">
+          <div class="action-text">
+            <div class="action-title">쇼핑검색 PC 소재 점검 (전환 2건)</div>
+            <div class="action-desc">PC 쇼핑검색 전환 2건으로 낮은 수준. 소재 이미지·타이틀·가격 경쟁력 점검 후 비효율 소재 교체 또는 OFF 검토. 모바일 집중 전략과 병행.</div>
+          </div>
+          <span class="action-priority pri-mid">권장</span>
+        </li>
+
+      </ul>
+      <button class="add-action-btn" onclick="addAction()">＋ Action Item 직접 추가</button>
+    </div>
+  </div>
+
+  <!-- ─── Email Preview ─── -->
+  <div class="section-label" style="margin-top:4px;">
+    <h2>📧 이메일 발송 설정</h2>
+  </div>
+  <div class="email-preview-box">
+    <div class="ep-head">
+      <h3>발송 정보 확인</h3>
+      <button class="ep-toggle" onclick="togglePreview()">▼ 미리보기 접기</button>
+    </div>
+    <div class="ep-body" id="epBody">
+      <div class="ep-field">
+        <label>수신</label>
+        <input class="ep-val" type="text" value="kim@dimate.co.kr (비셰프 마케팅팀 김OO)">
+      </div>
+      <div class="ep-field">
+        <label>참조</label>
+        <input class="ep-val" type="text" value="hong@zbros.co.kr (담당 AE 홍길동), team@zbros.co.kr">
+      </div>
+      <div class="ep-field">
+        <label>제목</label>
+        <input class="ep-val" type="text" value="[헬로맥스] 비셰프 4월 4주차 (4/20~4/26) 주간 광고 성과 리포트">
+      </div>
+      <div class="ep-attach">
+        <span class="file-icon">📎</span>
+        <span>(ZB)비셰프_2604_Weekly Report_260427.xlsx</span>
+        <span style="margin-left:auto;font-size:11px;color:var(--green);">✔ 원본 첨부</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom padding for fixed bar -->
+  <div style="height:70px;"></div>
+</div>
+
+<!-- Bottom Action Bar -->
+<div class="action-bar">
+  <div class="ab-left">
+    <span>⏱ AI 분석 완료</span>
+    <span class="timestamp-chip">2026.04.28 09:14</span>
+    <span>|</span>
+    <span style="color:var(--orange);">● AE 검토 대기 중</span>
+  </div>
+  <div class="ab-right">
+    <button class="btn btn-outline" onclick="regen()">🔄 AI 재생성</button>
+    <button class="btn btn-secondary" onclick="preview()">👁 이메일 미리보기</button>
+    <button class="btn btn-send" onclick="sendReport()">✉ 컨펌 &amp; 발송</button>
+  </div>
+</div>
+
+<!-- Regen Overlay -->
+<div class="regen-overlay" id="regenOverlay">
+  <div class="regen-box">
+    <div class="spinner"></div>
+    <p id="regenMsg">엑셀 데이터 재분석 중…</p>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+  function delInsight(btn) {
+    btn.closest('.insight-item').remove();
+  }
+
+  function addInsight() {
+    const li = document.createElement('li');
+    li.className = 'insight-item';
+    li.innerHTML = `
+      <div class="insight-icon info">📝</div>
+      <div class="insight-text">
+        <span class="it-tag info">직접 입력</span>
+        <p contenteditable="true" style="outline:none;border-bottom:1px dashed var(--border);">여기에 인사이트를 입력하세요…</p>
+      </div>
+      <button class="insight-del" onclick="delInsight(this)" title="삭제" style="opacity:1;">✕</button>`;
+    document.getElementById('insightList').appendChild(li);
+    li.querySelector('p').focus();
+  }
+
+  function addAction() {
+    const li = document.createElement('li');
+    li.className = 'action-item';
+    li.innerHTML = `
+      <input type="checkbox">
+      <div class="action-text">
+        <div class="action-title" contenteditable="true" style="outline:none;border-bottom:1px dashed var(--border);">Action Item 제목 입력</div>
+        <div class="action-desc" contenteditable="true" style="outline:none;border-bottom:1px dashed var(--border);margin-top:4px;">상세 내용 입력</div>
+      </div>
+      <span class="action-priority pri-low">추가</span>`;
+    document.querySelector('.action-list').appendChild(li);
+    li.querySelector('.action-title').focus();
+  }
+
+  function regen() {
+    const overlay = document.getElementById('regenOverlay');
+    const msg = document.getElementById('regenMsg');
+    overlay.classList.add('show');
+    const msgs = ['엑셀 데이터 재분석 중…','KPI 증감률 계산 중…','Claude AI 분석 요청 중…','인사이트 생성 중…','거의 완료되었습니다…'];
+    let i = 0;
+    const t = setInterval(() => {
+      msg.textContent = msgs[Math.min(i++, msgs.length-1)];
+    }, 700);
+    setTimeout(() => {
+      clearInterval(t);
+      overlay.classList.remove('show');
+      showToast('✦ AI 분석이 완료되었습니다. 새 초안을 확인하세요.');
+    }, 3800);
+  }
+
+  function preview() {
+    showToast('📧 이메일 미리보기 창이 열립니다. (샘플 시연)');
+  }
+
+  function sendReport() {
+    const checks = document.querySelectorAll('.action-item input[type=checkbox]:checked');
+    showToast(`✅ 컨펌 완료! 비셰프 담당자에게 이메일이 발송됩니다. (확인 액션 ${checks.length}건)`);
+  }
+
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 3000);
+  }
+
+  function togglePreview() {
+    const body = document.getElementById('epBody');
+    const btn = document.querySelector('.ep-toggle');
+    if (body.style.display === 'none') {
+      body.style.display = '';
+      btn.textContent = '▼ 미리보기 접기';
+    } else {
+      body.style.display = 'none';
+      btn.textContent = '▶ 미리보기 펼치기';
+    }
+  }
+</script>
+</body>
+</html>
