@@ -3,7 +3,10 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
+  ListResourcesRequestSchema,
+  ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+import { McpError, ErrorCode } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 
 import type { NaverAdsCredentials } from "../config/credentials.js";
@@ -419,7 +422,7 @@ export function createServer(deps: ServerDeps = {}): {
 
   const server = new Server(
     { name: "naver-ads-mcp", version: "0.2.0" },
-    { capabilities: { tools: {} } },
+    { capabilities: { tools: {}, resources: {} } },
   );
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
@@ -433,18 +436,6 @@ export function createServer(deps: ServerDeps = {}): {
           properties: { account: ACCOUNT_SCHEMA_FRAG },
           required: [],
         },
-      },
-      {
-        name: "list_report_types",
-        description:
-          "List supported Naver Ads report types with descriptions and retention periods.",
-        inputSchema: { type: "object", properties: {}, required: [] },
-      },
-      {
-        name: "list_accounts",
-        description:
-          "List configured Naver Ads accounts (name + customerId only — never licenses or secrets).",
-        inputSchema: { type: "object", properties: {}, required: [] },
       },
       {
         name: "fetch_raw_data",
@@ -514,10 +505,6 @@ export function createServer(deps: ServerDeps = {}): {
             rawArgs ?? {},
             tool_validate_credentials,
           );
-        case "list_report_types":
-          return { content: toContentText(tool_list_report_types()) };
-        case "list_accounts":
-          return { content: toContentText(tool_list_accounts()) };
         case "fetch_raw_data":
           return runValidated(FetchRawDataSchema, rawArgs, tool_fetch_raw_data);
         case "generate_report":
@@ -538,6 +525,58 @@ export function createServer(deps: ServerDeps = {}): {
         content: toContentText({ error: message }),
         isError: true,
       };
+    }
+  });
+
+  const RESOURCES = [
+    {
+      uri: "naver-ads://report-types",
+      name: "Report Types",
+      description:
+        "Supported Naver Ads report types with descriptions and retention periods.",
+      mimeType: "application/json",
+    },
+    {
+      uri: "naver-ads://accounts",
+      name: "Accounts",
+      description:
+        "Configured Naver Ads accounts (name + customerId only — no secrets).",
+      mimeType: "application/json",
+    },
+  ] as const;
+
+  server.setRequestHandler(ListResourcesRequestSchema, async () => ({
+    resources: RESOURCES.map((r) => ({ ...r })),
+  }));
+
+  server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+    const { uri } = request.params;
+    switch (uri) {
+      case "naver-ads://report-types":
+        return {
+          contents: [
+            {
+              uri,
+              mimeType: "application/json",
+              text: JSON.stringify(tool_list_report_types()),
+            },
+          ],
+        };
+      case "naver-ads://accounts":
+        return {
+          contents: [
+            {
+              uri,
+              mimeType: "application/json",
+              text: JSON.stringify(tool_list_accounts()),
+            },
+          ],
+        };
+      default:
+        throw new McpError(
+          ErrorCode.InvalidRequest,
+          `Unknown resource: ${uri}`,
+        );
     }
   });
 

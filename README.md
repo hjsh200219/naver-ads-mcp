@@ -35,7 +35,7 @@
 
 #### A. `accounts.json` — 다중 광고주 (권장)
 
-여러 광고주를 한 번에 관리할 수 있는 레지스트리. 프로젝트 루트의 `accounts.example.json`을 참고하여 `accounts.json`을 생성:
+여러 광고주를 한 번에 관리할 수 있는 레지스트리. 프로젝트 루트에 `accounts.json`을 생성:
 
 ```json
 {
@@ -57,7 +57,7 @@
 
 - `chmod 600 accounts.json` 권장 (다른 사용자 읽기 차단)
 - 위치 변경: `NAVER_ADS_ACCOUNTS_PATH=/secure/path/accounts.json` 환경변수
-- 계정 식별자(`primary` 등)는 `^[a-zA-Z0-9_-]{1,64}$` 형식만 허용 — LLM 대화 transcript 노출 방지를 위해 광고주 실명보다 `acc1`, `client-001` 같은 opaque label 권장
+- 계정 식별자(`primary` 등)는 `^[a-zA-Z0-9_-]{1,64}$` 형식만 허용 — `naver-ads://accounts` 리소스 조회 시 식별자가 LLM transcript에 그대로 노출되므로, 노출돼도 무방한 라벨 사용 (광고주 코드명 또는 `acc1`/`client-001` 같은 opaque label)
 - `accounts.json`은 `.gitignore`에 등록되어 있음 (절대 커밋 금지)
 
 #### B. `.env` 단일 광고주 — 레거시 fallback
@@ -130,6 +130,15 @@ npm start
 }
 ```
 
+## 제공하는 MCP Resources
+
+읽기 전용 정적 데이터는 LLM 토큰 소비를 줄이기 위해 Tool이 아닌 Resource로 제공됩니다.
+
+| URI                        | 반환                                                        |
+| -------------------------- | ----------------------------------------------------------- |
+| `naver-ads://report-types` | 지원하는 10개 reportTp 목록 + 보관 기간 + 설명 (JSON)       |
+| `naver-ads://accounts`     | `{accounts: [{name, customerId}], default}` — 시크릿 미반환 |
+
 ## 제공하는 MCP Tools
 
 모든 도구는 선택적 `account?: string` 인자를 받습니다. 미지정 시 `accounts.json`의 `default` 광고주 (또는 legacy `.env`의 `default`) 사용.
@@ -137,8 +146,6 @@ npm start
 | 도구                   | 인자                                                           | 반환                                                          |
 | ---------------------- | -------------------------------------------------------------- | ------------------------------------------------------------- |
 | `validate_credentials` | `{account?}`                                                   | `{ok, message}` — 자격증명 유효성 검증                        |
-| `list_report_types`    | 없음                                                           | 지원하는 10개 reportTp 목록 + 보관 기간 + 설명                |
-| `list_accounts`        | 없음                                                           | `{accounts: [{name, customerId}], default}` — 시크릿 미반환   |
 | `fetch_raw_data`       | `{account?, reportTp, startDate(YYYYMMDD), endDate(YYYYMMDD)}` | `{rows, count, reportTp}`                                     |
 | `generate_report`      | `{account?, startDate, endDate, outputPath}`                   | `{path, sheetNames, visibility, rowCount}` — 10시트 xlsx 생성 |
 
@@ -187,7 +194,7 @@ src/
 │  ├─ headers.ts           # 4개 RAW 시트 한글 헤더 상수
 │  └─ writer.ts            # ExcelJS 기반 10시트 xlsx 생성
 ├─ mcp/
-│  └─ server.ts            # MCP 서버 + 4개 도구
+│  └─ server.ts            # MCP 서버 + 3개 도구 + 2개 리소스
 ├─ util/
 │  └─ dates.ts             # 월별/주차/날짜 정규화
 ├─ cli.ts                  # stdio 진입점

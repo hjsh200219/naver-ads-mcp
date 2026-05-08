@@ -6,6 +6,23 @@ import { gzipSync } from "node:zlib";
 import { createServer } from "../src/mcp/server.js";
 import type { INaverAdsClient } from "../src/api/types.js";
 import type { ICredentialLoader } from "../src/config/credentials.js";
+import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import {
+  ListToolsRequestSchema,
+  ListResourcesRequestSchema,
+  ReadResourceRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js";
+
+type RequestSchema = {
+  shape: { method: { value: string } };
+};
+type RequestHandler = (
+  request: { method: string; params: Record<string, unknown> },
+  extra: Record<string, unknown>,
+) => Promise<unknown>;
+type ServerWithHandlers = Server & {
+  _requestHandlers: Map<string, RequestHandler>;
+};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -210,6 +227,85 @@ describe("fetch_raw_data tool", () => {
       endDate: "20240101",
     });
     expect(parseResult.success).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Helper: invoke a registered server request handler directly (no transport)
+// ---------------------------------------------------------------------------
+async function callHandler<T>(
+  server: Server,
+  schema: RequestSchema,
+  params: Record<string, unknown> = {},
+): Promise<T> {
+  const method = schema.shape.method.value;
+  const handler = (server as ServerWithHandlers)._requestHandlers.get(method);
+  if (!handler) throw new Error(`No handler for ${method}`);
+  return (await handler({ method, params }, {})) as T;
+}
+
+describe("MCP resources", () => {
+  it("tools/list does NOT contain list_report_types or list_accounts", async () => {
+    const { server } = createServer({ client: mockClient });
+    const result = await callHandler<{ tools: Array<{ name: string }> }>(
+      server,
+      ListToolsRequestSchema,
+    );
+    const names = result.tools.map((t) => t.name);
+    expect(names).not.toContain("list_report_types");
+    expect(names).not.toContain("list_accounts");
+  });
+
+  it("resources/list contains naver-ads://report-types and naver-ads://accounts", async () => {
+    const { server } = createServer({ client: mockClient });
+    const result = await callHandler<{
+      resources: Array<{ uri: string; name: string; mimeType: string }>;
+    }>(server, ListResourcesRequestSchema);
+    const uris = result.resources.map((r) => r.uri);
+    expect(uris).toContain("naver-ads://report-types");
+    expect(uris).toContain("naver-ads://accounts");
+  });
+
+  it("resources/read naver-ads://report-types returns report types JSON", async () => {
+    const { server } = createServer({ client: mockClient });
+    const result = await callHandler<{
+      contents: Array<{ uri: string; mimeType: string; text: string }>;
+    }>(server, ReadResourceRequestSchema, { uri: "naver-ads://report-types" });
+    expect(result.contents).toHaveLength(1);
+    const item = result.contents[0];
+    expect(item.uri).toBe("naver-ads://report-types");
+    expect(item.mimeType).toBe("application/json");
+    const parsed = JSON.parse(item.text) as { reportTypes: unknown[] };
+    expect(parsed.reportTypes).toBeInstanceOf(Array);
+    expect(parsed.reportTypes.length).toBeGreaterThanOrEqual(10);
+  });
+
+  it("resources/read naver-ads://accounts returns accounts JSON", async () => {
+    const { server } = createServer({
+      credentialLoader: mockLoader,
+      client: mockClient,
+    });
+    const result = await callHandler<{
+      contents: Array<{ uri: string; mimeType: string; text: string }>;
+    }>(server, ReadResourceRequestSchema, { uri: "naver-ads://accounts" });
+    expect(result.contents).toHaveLength(1);
+    const item = result.contents[0];
+    expect(item.uri).toBe("naver-ads://accounts");
+    expect(item.mimeType).toBe("application/json");
+    const parsed = JSON.parse(item.text) as {
+      accounts: unknown[];
+      default: unknown;
+    };
+    expect(parsed.accounts).toBeInstanceOf(Array);
+  });
+
+  it("resources/read unknown URI returns error", async () => {
+    const { server } = createServer({ client: mockClient });
+    await expect(
+      callHandler(server, ReadResourceRequestSchema, {
+        uri: "naver-ads://unknown",
+      }),
+    ).rejects.toThrow();
   });
 });
 
