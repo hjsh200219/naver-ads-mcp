@@ -5,18 +5,19 @@ type: project
 created: 2026-05-08
 ---
 
-helloMAX 주간/데일리 광고 리포트 자동화 + 광고주별 Live Artifact 대시보드를 `naver-ads-mcp`에 확장 형태로 구현하는 합의 플랜이 **v1.4 FINAL** 상태로 산출됨. 산출물 위치: `docs/exec-plans/active/weekly-report-automation-plan.md` + 4 review + 1 codex review. v1.4 변경점: 이메일 전송은 **MCP가 직접 발송** (v1.3 EML export 폐기, v1.2 send_report_email 부활). 단 **추가 개발 0 정책**: SES/도메인 인증/DKIM/SPF 미도입, 간단 SMTP(nodemailer + accounts.json `smtp` 키)만 사용. artifact preview only는 v1.3에서 그대로 유지.
+helloMAX 주간/데일리 광고 리포트 자동화 + 광고주별 Live Artifact 대시보드를 `naver-ads-mcp`에 확장 형태로 구현하는 합의 플랜이 **v1.5 FINAL** 상태로 산출됨. 산출물 위치: `docs/exec-plans/active/weekly-report-automation-plan.md` + 4 review + 1 codex review. v1.5 변경점: 이메일 발송은 naver-ads-mcp 책임 아님 — **별도 MCP**(Gmail MCP 등)에 위임. naver-ads-mcp는 `prepare_weekly_dashboard`가 artifact + email_payload(To/Cc/Subject/HTML body/첨부 path)만 반환. send_report_email tool 제거, nodemailer/SMTP 의존성 0. artifact preview only는 v1.3 유지.
 
-**핵심 결정** (Phase 0 진입 시 참조 필수, v1.4 FINAL):
+**핵심 결정** (Phase 0 진입 시 참조 필수, v1.5 FINAL):
 
-- Decision: Option A — Live Artifact **preview only** + **MCP 직접 발송 (간단 SMTP)** + MCP 확장 (5 tools + 4 resources)
-- Tool 추가: `prepare_weekly_dashboard`, **`send_report_email`** (v1.4, nodemailer 기반)
-- Resource 추가: `naver-ads://client-mappings`, `naver-ads://history/{client}`
-- 일정: **약 8.5주 (1인 개발, 직렬)** / 슬리피지 시 데일리 후퇴로 약 7주 v1.0 ship 가능
+- Decision: Option A — Live Artifact **preview only** + **email_payload 생성 후 외부 Email MCP 위임** + MCP 확장 (4 tools + 4 resources)
+- Tool 추가: **`prepare_weekly_dashboard`만** (v1.5, send tool 제거)
+- Resource 추가: `naver-ads://client-mappings`, `naver-ads://history/{client}` (prepare 이력만)
+- 일정: **약 8주 (1인 개발, 직렬)** / 슬리피지 시 데일리 후퇴로 약 7주 v1.0 ship 가능
 - 편집 default: AE 자연어 → MCP 재호출. JSON copy/paste opt-in
-- 발송: MCP가 nodemailer + accounts.json `smtp` 키로 SMTP 직접 발송. **추가 개발 0 정책**: SES/도메인 인증/DKIM/SPF 미도입, 간단 SMTP 1개(Gmail app password / hellomax 자체 SMTP / SendGrid free 등)만 사용
+- 발송: **외부 Email MCP** (Gmail MCP 등)가 담당. naver-ads-mcp는 `email_payload {to, cc[], subject, html_body, attachment_path}` 표준 JSON만 반환. nodemailer/SMTP/SES 의존성 0
+- 책임 분리: naver-ads-mcp = 데이터·AI·preview·payload 생성 / 외부 MCP = 발송. send 이력은 외부 MCP의 sent items가 source of truth
 - Hallucination guard: 95% (1차 ship), 99% (Phase 4)
-- 보안 핵심: AE 머신이 단일 보안 경계 → Phase 4 runbook 의무화 + Anthropic·SMTP 키는 `accounts.json`/`.env` + `enumerable:false`
+- 보안 핵심: AE 머신이 단일 보안 경계 → Phase 4 runbook 의무화 + Anthropic 키는 `accounts.json`/`.env` + `enumerable:false`
 
 **Phase 1 GO 게이트** (모두 충족해야 진입; v1.2에서 결재·한도 게이트 제거):
 
