@@ -1,59 +1,59 @@
 ---
-created: 2026-05-08T17:30:00+09:00
+created: 2026-05-09T15:00:00+09:00
 project: naver-ads-mcp
-summary: helloMAX 주간리포트 자동화 + 광고주별 Live Artifact 대시보드 합의 플랜 v1.1 (LOCKED) 산출 — ralplan 4 라운드 + Codex adversarial 통과
+summary: weekly-report-automation plan v1.1 → v1.5 진화 — 결제 한도 제거, 1인 일정, artifact preview only, 이메일 발송은 외부 MCP 위임 (책임 분리 완료)
 ---
 
 ## Session Digest
 
-`docs/references/`에 추가된 3개 문서(광고운영부서 워크플로우·HelloMax AI코멘트 기획안 v2.0·비셰프 샘플 HTML)를 입력으로, helloMAX의 데일리/주간 리포트 자동화 + 광고주별 Live Artifact 대시보드 합의 플랜 v1.1을 산출. ralplan(Architect ITERATE → Critic ITERATE×2 → APPROVE) 4 라운드를 거친 뒤 Codex adversarial 리뷰(CONDITIONAL)까지 받아 사용자가 Q1(광고주 NDA 외부 API 전송 허용 확인) + Q2(Claude seat = Max)를 답변, plan에 반영. 6개 markdown 파일(plan + 4 review + 1 codex review)을 `docs/exec-plans/active/`에 커밋 + push (`facea6e docs(exec-plans): ...`). 코드 변경은 0건이므로 검증 단계는 자동 스킵.
+전 세션에서 ralplan + Codex 통과한 v1.1을 시작으로, 사용자 결정에 따라 v1.2~v1.5까지 4 라운드 진화시킨 의사결정 세션. 코드 변경 0건, 모두 plan markdown 산출. 핵심 진화: (v1.2) ZBROS USD 결재 게이트 제거, 비용 모니터링은 visibility만, (v1.3) O2 dev=1인 → 8.5주 → 약 8주 + Codex 제안 채택해 artifact preview only + EML export, (v1.4) 사용자 결정으로 EML export 폐기 → MCP 직접 SMTP 발송 (단 추가 개발 0: nodemailer + accounts.json smtp 키만), (v1.5) 사용자 정정으로 SMTP까지 모두 폐기 → **이메일 발송은 별도 MCP**(Gmail MCP 등)가 담당, naver-ads-mcp는 email_payload 표준 JSON만 반환. 결과: 4 tools + 4 resources, nodemailer/SES/SMTP 의존성 0, Phase 3 1주 → 0.5주, 총 약 8주.
 
 ## Progress
 
-- ✅ `docs/references/` 3개 문서 파싱 및 분석 (workflow.docx, AI코멘트 기획안 v2.0.docx, 비셰프 샘플 HTML)
-- ✅ Planner 초안 v0.1 작성 (RALPLAN-DR Summary + Architecture + Phase Plan + Risk + AC + Migration Path)
-- ✅ Architect 리뷰 — ITERATE (4 차단 + 3 경고)
-- ✅ Critic v0.2 리뷰 — ITERATE (7 MUST + 4 SHOULD)
-- ✅ Critic v0.3 리뷰 — ITERATE (3 MUST + 2 SHOULD)
-- ✅ Critic v0.4 리뷰 — APPROVE + ADR 본문 paste-ready
-- ✅ Codex adversarial 리뷰 — CONDITIONAL (광고주 데이터 외부 LLM 전송 계약/법적 승인 부재가 최대 risk)
-- ✅ 사용자 답변 Q1·Q2 → v1.1 LOCKED 반영
-- ✅ Plan + 4 review + Codex review 6개 파일 git commit + push (`facea6e`)
-- ⏳ Phase 0 진입 보류 — Open Questions O1 (택스아이 누락 고지) / O2 (dev 인원) / O3 (Claude Max 한도) 답변 대기
+- ✅ v1.2 LOCKED — 결제 한도/결재 게이트 전부 제거. 비용 알림은 visibility(전월 평균 ×2 초과)만
+- ✅ v1.3 LOCKED — O2 dev=1인 결정 / O1 답: 택스아이 비완전은 Naver API 한계 단순 데이터 표기 / artifact preview only 채택
+- ✅ v1.4 LOCKED — MCP 직접 발송 (간단 SMTP, nodemailer + accounts.json smtp 키)
+- ✅ **v1.5 FINAL** — 이메일 발송은 외부 MCP 위임. send_report_email tool 제거, nodemailer/SMTP/SES 의존성 0
+- ✅ 5개 commit 모두 origin/main에 push (`aedfa35`, `24b8993`, `b8fcfa3`, `3373a1c`)
+- ✅ Memory weekly-report-automation-plan.md v1.5 반영 갱신
+- ⏳ Phase 0 진입 결정 대기 (사용자가 시작 신호 주면 `/oh-my-claudecode:team` 또는 `ralph` 모드 선택)
 
 ## Next Steps
 
-1. **사용자 답변 대기 (3건)**:
-   - O1: 택스아이 등 데이터 비완전 광고주 누락 고지 정책 (artifact 배지만 / 배지+이메일 footer / 배지+footer+별도 안내 메일)
-   - O2: Dev 인원 (1인 9-12주 / 2인 8.5주 / 더 많음)
-   - O3: Claude Max 월요일 피크 분산 정책 (PoC 측정 후 결정 / API 키 이중 채널 / 호출 시간 분산)
-2. Phase 1 GO 게이트 진입 결정: ZBROS USD 결재 라인 합의 + Phase 0 PoC 4건 (artifact↔MCP 콜백, Max 한도, 누락 고지 정책, PII 최소화 prompt) 실행
-3. Phase 0 시작 시 `/oh-my-claudecode:team` (병렬) 또는 `/oh-my-claudecode:ralph` (순차) 모드 결정
-4. Codex가 제안한 더 가벼운 대안 ("artifact preview only + 운영 산출물은 markdown/EML") 채택 여부 별도 결정
+1. **Phase 0 진입 결정** — 시작 시 모드 선택:
+   - `/oh-my-claudecode:team` (병렬 실행, 권장하나 1인 환경에서 효과 제한)
+   - `/oh-my-claudecode:ralph` (순차 검증, 1인에 적합)
+   - 또는 Phase 0 PoC 4건만 우선 시작
+2. Phase 0 PoC 4건:
+   - (a) Live Artifact preview 검증 — Claude Desktop 실 렌더 + 자연어 편집 흐름
+   - (b) 외부 Email MCP 연동 검증 — Gmail MCP `create_draft`/send에 email_payload 전달 → qa inbox
+   - (c) Claude Max 사용량 한도 측정 (월요일 피크 prepare 9회 + 데일리 6회)
+   - (d) 택스아이 누락 영역 표기 정책 결정 (artifact 셀 "Naver 미제공" + data_warnings[])
+3. Phase 0 acceptance 4건: resource 등록 / mappings schema / Anthropic ping / JSONL 결정성
+4. Phase 1~4 시작은 Phase 0 산출물 확보 후
 
 ## Blockers
 
-- 없음 (Phase 0 진입은 사용자 답변·결재 대기 상태이며 기술적 차단 아님)
+- 없음 (Phase 0 진입은 사용자 시작 신호 대기 상태)
 
 ## Watch Out
 
-- **Codex 가장 큰 risk**: 광고주 KPI/수신자/메일 본문이 Anthropic API로 전송된다는 점 — 사용자가 광고주 NDA 허용 답변했으나, plan v1.1 §Risk 신규 항목으로 (a) PII 최소화(수신자 이메일 SHA256 hash) (b) 개인정보위 2025 생성형 AI 안내서 점검 1회 (c) 2026 광고주 계약 갱신 시 AI 사용 조항 명시 권장이 추가됨. Phase 0에서 이행 점검 필요.
-- **택스아이 미해소 상태**: SA+브랜드검색+파워컨텐츠 복합인데 brand search 영역별 성과는 Naver API 미지원. plan은 누락 고지 정책 결정을 Phase 0 PoC로 deferred. 광고주에게 보내는 리포트의 신뢰도 위협이므로 O1 답변이 Phase 2 dashboard/artifact-html 디자인의 입력.
-- **Live Artifact ↔ MCP 콜백 가정 미검증**: Codex가 지적한 대로 Anthropic 공식 도움말상 artifact가 stdio MCP로 직접 콜백할 공식 브리지는 확인 안 됨. Phase 0 PoC #1에서 실측 후 가정 깨지면 fallback (markdown/EML only)으로 격하.
-- **Hallucination guard 95% 임계값 측정 가능성**: Korean text + 광고주 톤 + 비교 표현(전주 대비, MoM)을 정규식으로 95% 매칭이 실전에서 가능한지는 Phase 1 fixture 통과로 검증 필요. 1차 ship 95% / Phase 4 99% 단계 게이트.
-- **8.5주 일정의 인원 가정**: 1인 개발이면 비현실적. O2 답변 기다리되, 1인이면 9-12주 fallback + scope 축소(데일리 v2 후퇴 등) 검토.
-- **prepush hook이 prettier 자동 포맷**: 6개 markdown이 커밋 시 자동 reformat됨. 의도된 동작이지만 파일 라인 번호가 review 본문 cross-reference와 미세 어긋날 수 있음.
+- **v1.5 책임 분리 의의**: naver-ads-mcp는 Naver SearchAd + AI 분석에만 집중. 이메일 인프라(SES/SMTP/nodemailer/도메인 인증/bounce 처리/sent items)는 외부 MCP가 이미 해결한 문제이므로 위임. Phase 1~3 구현 시 이 경계를 침범하지 말 것.
+- **history JSONL은 prepare 이벤트만**: send 이벤트는 외부 Email MCP의 sent items가 source of truth. naver-ads-mcp에서 send 이력 추적 시도 금지.
+- **email_payload 표준 JSON 형식**: `{ to: string, cc: string[], subject: string, html_body: string, attachment_path: string }`. 외부 MCP가 그대로 소비할 수 있어야 함 — 파일 path 절대값 + UTF-8 보존 필수.
+- **택스아이 brand search 영역별 미지원**은 Naver API 자체 한계(CLAUDE.md L18 명시). 광고주 결함 아니므로 별도 안내 메일 절차 만들지 말고, artifact 셀에 "Naver 미제공" 표기 + data_warnings[] 필드로만 처리.
+- **추가 개발 0 정책 일관**: SES 도메인 인증, DKIM/SPF, AWS SDK, nodemailer, MIME 빌더, sandbox/bounce 처리 등 무거운 이메일 인프라는 v1.5에서 모두 폐기. Phase 0/1/2/3에서 이 흔적이 다시 나타나지 않도록 layer-rules + ESLint zone 강제.
+- **prepush hook이 prettier 자동 포맷**: markdown 커밋 시 자동 reformat됨. 의도된 동작이지만 review 본문 라인 번호 cross-reference와 미세 어긋날 수 있음.
+- 4 라운드 합의(ralplan 4 + Codex 1) + 4 사용자 결정(v1.2~v1.5)이 누적된 plan이라 v0.1부터 읽으면 혼란 — 최신 v1.5 본문 + ADR + Resolved Questions만 참조하면 됨.
 
-## Files Touched
+## Files Touched (이번 세션)
 
-- `docs/exec-plans/active/weekly-report-automation-plan.md` (신규, v1.1 LOCKED 합의 플랜)
-- `docs/exec-plans/active/weekly-report-automation-architect-review.md` (신규, Architect ITERATE)
-- `docs/exec-plans/active/weekly-report-automation-critic-review.md` (신규, Critic v0.2 ITERATE)
-- `docs/exec-plans/active/weekly-report-automation-critic-review-v2.md` (신규, Critic v0.3 ITERATE)
-- `docs/exec-plans/active/weekly-report-automation-critic-review-v3.md` (신규, Critic v0.4 APPROVE)
-- `docs/exec-plans/active/weekly-report-automation-codex-review.md` (신규, Codex CONDITIONAL adversarial)
+- `docs/exec-plans/active/weekly-report-automation-plan.md` (v1.2 → v1.3 → v1.4 → v1.5)
+- `.claude-project/memory/weekly-report-automation-plan.md` (v1.5 반영 갱신)
+- (이번 세션 신규 추가 예정) `.claude-project/memory/mcp-responsibility-separation.md` — 외부 MCP 위임 패턴
 
 ## Cleanup (위생 점검)
 
 - 변경 파일은 모두 markdown 산출물이라 console.log/TODO/FIXME/미사용 import 등 코드 위생 항목 해당 없음
-- 6개 markdown 시크릿 패턴 grep 결과: 변수명 인용만 발견(secretKey/accessLicense/sk-ant-/ANTHROPIC_API_KEY/password), 실제 비밀값 0건 — clean
+- 시크릿 grep: 변수명 인용만 발견, 실제 비밀값 0건 — clean
+- v1.5에서 SMTP/nodemailer 의존성 모두 제거되어 구현 시 새 npm 패키지 추가 0건 (anthropic SDK만 신규)
