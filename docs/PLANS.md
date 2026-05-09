@@ -4,7 +4,7 @@
 
 활성 실행 계획은 [docs/exec-plans/active/](./exec-plans/active/) 참조.
 
-현재 활성 계획: 없음 (Phase 2 지식 아키텍처 구축 완료)
+현재 활성 계획: [helloMAX Weekly Report Automation — Plan v1.5 FINAL](./exec-plans/active/weekly-report-automation-plan.md)
 
 ## 완료된 계획 (Completed)
 
