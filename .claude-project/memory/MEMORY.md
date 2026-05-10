@@ -15,6 +15,9 @@
 - [weekly-report-automation-plan.md](weekly-report-automation-plan.md) — 주간/데일리 리포트 자동화 + 광고주별 Live Artifact 합의 플랜 v1.5 FINAL + Phase 0 게이트
 - [anthropic-data-transmission-policy.md](anthropic-data-transmission-policy.md) — 광고주 데이터 외부 LLM 전송 정책 (NDA 허용·PII 최소화·점검 게이트)
 - [mcp-responsibility-separation.md](mcp-responsibility-separation.md) — MCP는 자기 도메인에 집중, 이메일 등은 외부 MCP에 표준 payload로 위임 (v1.5 채택)
+- [v1.6-lock-semantics-serialize-only.md](v1.6-lock-semantics-serialize-only.md) — v1.6 lock은 prepare 직렬화만, N건 모두 성공. SEND lock 거절 semantics는 v1.5 폐기됨
+- [hallucination-guard-date-context-filter.md](hallucination-guard-date-context-filter.md) — review_text 숫자 추출 시 (월/일/주차/주/년/시/분) lookahead로 날짜 컨텍스트 제외, 안 그러면 정상 날짜 표현이 false-positive penalty
+- [anthropic-client-lazy-factory.md](anthropic-client-lazy-factory.md) — cli.ts는 AnthropicClient를 lazy factory(`() => new AnthropicClient()`)로 주입, ANTHROPIC_API_KEY 없는 사용자도 기존 5툴 사용 가능
 
 ## Reference
 
