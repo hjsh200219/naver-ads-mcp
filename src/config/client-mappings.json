@@ -1,0 +1,58 @@
+{
+  "mappings": [
+    {
+      "client_id": "client-1",
+      "display_name": "TBD",
+      "customer_id": "TBD",
+      "recipients": [],
+      "cc": [],
+      "automation_enabled": true,
+      "notes": "추후 업데이트 예정"
+    },
+    {
+      "client_id": "client-2",
+      "display_name": "TBD",
+      "customer_id": "TBD",
+      "recipients": [],
+      "cc": [],
+      "automation_enabled": true,
+      "notes": "추후 업데이트 예정"
+    },
+    {
+      "client_id": "client-3",
+      "display_name": "TBD",
+      "customer_id": "TBD",
+      "recipients": [],
+      "cc": [],
+      "automation_enabled": true,
+      "notes": "추후 업데이트 예정"
+    },
+    {
+      "client_id": "client-4",
+      "display_name": "TBD",
+      "customer_id": "TBD",
+      "recipients": [],
+      "cc": [],
+      "automation_enabled": true,
+      "notes": "추후 업데이트 예정"
+    },
+    {
+      "client_id": "client-5",
+      "display_name": "TBD",
+      "customer_id": "TBD",
+      "recipients": [],
+      "cc": [],
+      "automation_enabled": true,
+      "notes": "추후 업데이트 예정"
+    },
+    {
+      "client_id": "client-6",
+      "display_name": "TBD",
+      "customer_id": "TBD",
+      "recipients": [],
+      "cc": [],
+      "automation_enabled": true,
+      "notes": "추후 업데이트 예정"
+    }
+  ]
+}

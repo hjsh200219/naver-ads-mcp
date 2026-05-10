@@ -6,11 +6,15 @@
   "constraints": [
     "TDD mode: tests first, then implementation",
     "MCP server using @modelcontextprotocol/sdk (stdio transport)",
-    "Credentials from .env via dotenv (no hardcoded secrets)",
+    "Credentials from .env via dotenv (no hardcoded secrets); ANTHROPIC_API_KEY (v1.6) loaded with enumerable:false same pattern",
     "HMAC-SHA256 signing per Naver Search Ad API spec (timestamp ms . method . URI)",
     "Brand search sheet (sheet 6) is intentionally excluded (API does not support area-level performance)",
     "Output: 9 of 10 sheets generated (skip 'brand search 성과')",
-    "Korean column names preserved per template form"
+    "Korean column names preserved per template form",
+    "[v1.6] Weekly Report Automation: external Email MCP dependency = 0; AE sends html/xlsx attachments via own mail client (Gmail/Outlook); naver-ads-mcp is responsible up to file save",
+    "[v1.6] Live artifact is AE preview only (광고주 미노출). Files for 광고주 발송: html (기준 양식) + xlsx (동일 KPI 구조 sheet 전개), saved to ~/.naver-ads-mcp/reports/{client}/{week}.{html|xlsx}",
+    "[v1.6] Layer rules enforced via ESLint import/no-restricted-paths zones (Phase 0 산출물); L1 ← L2 ← L3 ← L4 ← L5 import direction",
+    "[v1.6] Hallucination guard ≥ 95% (1차 ship), tightened to 99% in Phase 4"
   ],
   "stories": [
     {
@@ -191,6 +195,73 @@
         "README mentions that brand search 성과 sheet is intentionally excluded with reference to GitHub Issue #1072 official answer",
         "README includes API key issuance steps (네이버 검색광고 센터 → 도구 → API 사용관리)",
         "README includes section on key rotation procedure"
+      ]
+    },
+    {
+      "id": "US-013",
+      "title": "[v1.6 Phase 0] Client mappings (zod schema + JSON config + MCP resource)",
+      "priority": 13,
+      "passes": true,
+      "acceptanceCriteria": [
+        "src/config/client-mappings.ts exports a zod schema for ClientMapping and a loader that reads src/config/client-mappings.json (strict mode, additionalProperties: false)",
+        "ClientMapping schema fields: client_id (kebab-case string), display_name (string, may be 'TBD' until 추후 업데이트), customer_id (string, may be 'TBD'), recipients (string[]), cc (string[]), automation_enabled (boolean default true), notes (string optional)",
+        "src/config/client-mappings.json contains 6 placeholder entries (client_id 1~6) with display_name='TBD' and customer_id='TBD' until 사용자가 추후 업데이트. JSON parses cleanly under strict zod schema",
+        "MCP resource registered: naver-ads://client-mappings returns the loaded JSON as a read-only resource (recipients/cc fields are NOT included in the public resource payload — PII minimization)",
+        "tests/client-mappings.test.ts: zod schema accepts valid mapping, rejects unknown keys, rejects non-kebab-case client_id, rejects missing required fields, rejects duplicate client_id; resource returns redacted payload (no recipients/cc)",
+        "AC #16 (Phase 0): mcp.list_resources() includes naver-ads://client-mappings (verified via integration test)",
+        "AC #17 (Phase 0): JSON schema validator passes for the 6 placeholder entries"
+      ]
+    },
+    {
+      "id": "US-014",
+      "title": "[v1.6 Phase 0/3] history JSONL (atomic append + per-client/week resource)",
+      "priority": 14,
+      "passes": true,
+      "acceptanceCriteria": [
+        "src/runtime/history.ts exports appendHistory({client, week, payload_hash, html_path, xlsx_path, status}) → Promise<void> with atomic write semantics (temp file + rename, POSIX atomic)",
+        "JSONL schema (zod): {week: string ISO week, client: string client_id, payload_hash: string sha256 hex, prepared_at: string ISO datetime, html_path: string absolute, xlsx_path: string absolute, status: 'prepared' | 'corrected_prepared' | 'prepare_failed'}. SEND events are NOT recorded (외부 메일 클라이언트 sent items가 source of truth)",
+        "appendHistory acquires per-(client, week) lock via src/runtime/lock.ts (proper-lockfile) before opening the JSONL file",
+        "MCP resource: naver-ads://history/{client} returns the JSONL file content for that client (read-only)",
+        "src/runtime/payload-hash.ts exports computePayloadHash(canonical_payload, timestamp_minute) → string sha256 hex; deterministic for same input + same minute",
+        "tests/history.test.ts: appendHistory writes 1 line, concurrent appends serialized via lock, schema validation rejects malformed entries, atomic write verified (no partial writes on simulated crash)",
+        "tests/payload-hash.test.ts: same input + same minute → same hash; minute boundary changes hash; canonical_payload reordered keys → same hash (canonicalization)",
+        "AC #18 (Phase 0): ANTHROPIC_API_KEY loader integration — credentials.ts loads ANTHROPIC_API_KEY from .env with enumerable:false; tests pass with mock; live ping deferred to user-provided key",
+        "AC #19 (Phase 0): payload_hash determinism unit test passes (same input → same hash)"
+      ]
+    },
+    {
+      "id": "US-015",
+      "title": "[v1.6 Phase 1+2] Excel template parser + AI analyzer + AE preview artifact",
+      "priority": 15,
+      "passes": true,
+      "acceptanceCriteria": [
+        "src/parser/excel-template.ts parses 3-stage helloMAX weekly excel (header, KPI cells, breakdown). Handles merged cells, formula cells (data_only), #DIV/0! sentinel, 증감률 형식 통일",
+        "src/parser/precompute-kpi.ts computes 절대값 + 증감률(MoM, WoW) + 단위변환 KPI deterministically. Pure function over parsed rows, returns standardized KPI struct",
+        "src/api/anthropic.ts wraps @anthropic-ai/sdk with prompt caching (system + few-shot). Reads ANTHROPIC_API_KEY via src/config/anthropic-credentials.ts (mirrors credentials.ts pattern; enumerable:false on apiKey). Handles rate limit 429 with Retry-After, 5xx with exponential backoff (3 attempts)",
+        "src/analyzer/ai-comment.ts generates review_text using precomputed KPI as the single source of truth (system prompt: only cite numbers from payload). Few-shot example uses anonymized fixture",
+        "Hallucination guard 2-stage: (a) extract numbers from review_text via regex, (b) verify each is a member of precomputed KPI fields (절대값/증감률/단위변환). Threshold ≥ 95% (1차 ship) for CI gate; <95% lowers confidence by 0.3",
+        "src/dashboard/artifact-html.ts generates self-contained HTML (외부 fetch 0, inline CSS) for AE preview. Contains 6 KPI cards + 매체 분리 + insights ≥ 3 + actions ≥ 3. Confidence < 0.7 shows warning badge at top",
+        "PoC 1 흡수: tests/artifact-html.test.ts snapshot-checks DOM structure (DOM nodes ≥ 100, console errors 0, all required sections present)",
+        "tests/excel-template.test.ts (6 anonymized fixtures parse 100%), tests/precompute-kpi.test.ts (deterministic computation), tests/anthropic.test.ts (mocked client + retry), tests/ai-comment.test.ts (hallucination guard + few-shot), tests/artifact-html.test.ts (snapshot)",
+        "Total Phase 1+2 신규 tests ≥ 36 (P1: 14+, P2: 22+)"
+      ]
+    },
+    {
+      "id": "US-016",
+      "title": "[v1.6 Phase 3] Output file writer (html + xlsx) + prepare_weekly_dashboard MCP tool",
+      "priority": 16,
+      "passes": true,
+      "acceptanceCriteria": [
+        "src/output/weekly-html.ts generates 광고주 발송용 self-contained HTML (외부 fetch 0). Same KPI/매체/insights/actions structure as artifact-html.ts but styled for email reading (광고주 친화적, AE 디버그 패널 제거)",
+        "src/output/weekly-xlsx.ts uses exceljs to generate a 1~2 sheet workbook (Sheet 1: KPI Summary, Sheet 2: 매체 breakdown). Column headers, number formats (1000 separator, %, 원), Korean labels match HTML version 1:1",
+        "src/output/file-writer.ts writes both files atomically (temp + rename) to ~/.naver-ads-mcp/reports/{client}/{week}.html and {week}.xlsx. Returns absolute paths {html_path, xlsx_path}. Acquires (client, week) lock before write",
+        "src/mcp/tools/prepare_weekly_dashboard.ts implements the MCP tool: args {client, week, revisions?: string, correction?: boolean}, returns {artifact_html, html_path, xlsx_path, payload_hash, data_warnings: string[]}. Internally: (1) load client-mappings, (2) parse latest excel + precompute KPI, (3) call ai-comment, (4) hallucination guard, (5) generate artifact-html (AE) + weekly-html + weekly-xlsx (광고주), (6) write files atomic, (7) append history JSONL prepare event",
+        "data_warnings: includes '브랜드검색 영역별 성과: Naver API 미제공' for 택스아이 등 해당 광고주",
+        "Concurrency (v1.6 정정): same (client, week) prepare N건 동시 호출 → 모두 성공, 단 lock으로 직렬화되어 partial/torn file 0건. (v1.5 'lock-rejected' semantics는 SEND 경로용이었음; v1.6에서 SEND는 외부 메일 클라이언트 책임이라 PREPARE는 serialize-only로 정의)",
+        "Structural parity test: weekly-html and weekly-xlsx report identical KPI values for same input fixture (verified by parsing both back and asserting equality)",
+        "tests/weekly-html.test.ts, tests/weekly-xlsx.test.ts, tests/file-writer.test.ts (atomic + concurrency), tests/prepare-weekly-dashboard.test.ts (integration with mocked Anthropic + 6 fixtures)",
+        "Total Phase 3 신규 tests ≥ 10",
+        "AE 발송 가이드 README 섹션 추가: prepare 결과의 html_path/xlsx_path를 본인 메일 클라이언트(Gmail/Outlook 등)에서 첨부해 광고주에게 직접 발송"
       ]
     }
   ]

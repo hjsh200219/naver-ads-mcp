@@ -35,6 +35,22 @@ import { buildKeywordPerformance } from "../pivot/keyword.js";
 import { buildProductPerformance } from "../pivot/product.js";
 import { buildSearchTermPerformance } from "../pivot/search-term.js";
 import { writeReport } from "../excel/writer.js";
+import { toPublicResourcePayload } from "../config/client-mappings.js";
+import {
+  loadClientMappings,
+  defaultClientMappingsPath,
+} from "../runtime/client-mappings-loader.js";
+import type { ClientMappingsFile } from "../config/client-mappings.js";
+import { readHistory, appendHistory } from "../runtime/history.js";
+import { computePayloadHash } from "../runtime/payload-hash.js";
+import { writeReportFiles } from "../output/file-writer.js";
+import { renderArtifactHtml } from "../dashboard/artifact-html.js";
+import { generateAiComment, type IAnthropic } from "../analyzer/ai-comment.js";
+import type { PrecomputedPayload } from "../parser/types.js";
+import { parseHelloMaxXlsx } from "../parser/excel-template.js";
+import { aggregateWeeklyPayload } from "../parser/aggregate-payload.js";
+import os from "node:os";
+import path from "node:path";
 
 export interface ServerDeps {
   /** Multi-account registry. If omitted, falls back to legacy env-var single-account behaviour. */
@@ -48,6 +64,23 @@ export interface ServerDeps {
   /** Injectable for tests. */
   fetch?: typeof globalThis.fetch;
   baseUrl?: string;
+  /** v1.6 Phase 0 — explicit path for client-mappings.json (defaults to src/config/client-mappings.json). */
+  clientMappingsPath?: string;
+  /** v1.6 Phase 0 — pre-loaded client mappings (test injection). */
+  clientMappings?: ClientMappingsFile;
+  /** v1.6 Phase 0/3 — base directory for history JSONL files (defaults to ~/.naver-ads-mcp/history). */
+  historyBaseDir?: string;
+  /** v1.6 Phase 3 — base directory for prepared report files (defaults to ~/.naver-ads-mcp/reports). */
+  reportsBaseDir?: string;
+  /** v1.6 Phase 2/3 — Anthropic client for prepare_weekly_dashboard. Tests inject a mock. */
+  anthropic?: IAnthropic;
+  /** v1.6 Phase 2/3 — lazy factory used when prepare_weekly_dashboard is invoked but no `anthropic` was injected. Lets cli.ts pass a builder that only loads ANTHROPIC_API_KEY at first use, so the server still boots without the key. */
+  anthropicFactory?: () => IAnthropic;
+  /** v1.6 Phase 1 — provider that returns a PrecomputedPayload for (client, week). Tests inject. */
+  payloadProvider?: (args: {
+    client: string;
+    week: string;
+  }) => Promise<PrecomputedPayload>;
 }
 
 // ---------------------------------------------------------------------------
@@ -79,6 +112,24 @@ const GenerateReportSchema = z.object({
   outputPath: z.string(),
 });
 
+const ClientIdPattern = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+const WeekPattern = /^\d{4}-W\d{2}$/;
+const WeeklyLabelPattern = /^\d{4}-\d{2}-\d{2}주차$/;
+const PrepareWeeklySchema = z
+  .object({
+    client: z.string().regex(ClientIdPattern),
+    week: z.string().regex(WeekPattern),
+    /** Path to the AE-uploaded helloMAX form xlsx. Required when no payloadProvider is injected. */
+    xlsxPath: z.string().optional(),
+    /** 일별RAW 주차 label for the current week (e.g. "2026-05-04주차"). Used with xlsxPath. */
+    targetWeekLabel: z.string().regex(WeeklyLabelPattern).optional(),
+    /** 일별RAW 주차 label for the comparison week. */
+    compareWeekLabel: z.string().regex(WeeklyLabelPattern).optional(),
+    revisions: z.string().optional(),
+    correction: z.boolean().optional(),
+  })
+  .strict();
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -109,6 +160,36 @@ function toContentText(obj: unknown): { type: "text"; text: string }[] {
   return [{ type: "text", text: JSON.stringify(obj) }];
 }
 
+async function readAllHistoryWeeks(
+  baseDir: string,
+  clientId: string,
+): Promise<unknown[]> {
+  const fsp = (await import("node:fs")).promises;
+  const dir = path.join(baseDir, clientId);
+  let names: string[];
+  try {
+    names = await fsp.readdir(dir);
+  } catch (err) {
+    if (
+      err instanceof Error &&
+      (err as NodeJS.ErrnoException).code === "ENOENT"
+    ) {
+      return [];
+    }
+    throw err;
+  }
+  const weeks = names
+    .filter((n) => /^\d{4}-W\d{2}\.jsonl$/.test(n))
+    .map((n) => n.replace(/\.jsonl$/, ""))
+    .sort();
+  const out: unknown[] = [];
+  for (const week of weeks) {
+    const entries = await readHistory({ baseDir, client: clientId, week });
+    for (const e of entries) out.push(e);
+  }
+  return out;
+}
+
 const YYYYMMDD = { type: "string" as const, pattern: "^\\d{8}$" };
 const ACCOUNT_SCHEMA_FRAG = {
   type: "string" as const,
@@ -132,6 +213,9 @@ export function createServer(deps: ServerDeps = {}): {
     ) => Promise<unknown>;
     generate_report: (
       args: z.infer<typeof GenerateReportSchema>,
+    ) => Promise<unknown>;
+    prepare_weekly_dashboard: (
+      args: z.infer<typeof PrepareWeeklySchema>,
     ) => Promise<unknown>;
   };
 } {
@@ -416,6 +500,79 @@ export function createServer(deps: ServerDeps = {}): {
     });
   };
 
+  const REPORTS_BASE_DIR =
+    deps.reportsBaseDir ?? path.join(os.homedir(), ".naver-ads-mcp", "reports");
+
+  const HISTORY_BASE_DIR =
+    deps.historyBaseDir ?? path.join(os.homedir(), ".naver-ads-mcp", "history");
+
+  const tool_prepare_weekly_dashboard = async (
+    args: z.infer<typeof PrepareWeeklySchema>,
+  ): Promise<unknown> => {
+    const { client: clientId, week } = args;
+    let anthropic = deps.anthropic;
+    if (anthropic === undefined && deps.anthropicFactory) {
+      anthropic = deps.anthropicFactory();
+    }
+    if (anthropic === undefined) {
+      throw new Error(
+        "prepare_weekly_dashboard requires an anthropic client (set ANTHROPIC_API_KEY and pass AnthropicClient, or supply anthropicFactory).",
+      );
+    }
+    let payload: PrecomputedPayload;
+    if (deps.payloadProvider) {
+      payload = await deps.payloadProvider({ client: clientId, week });
+    } else if (args.xlsxPath && args.targetWeekLabel && args.compareWeekLabel) {
+      const rows = await parseHelloMaxXlsx(args.xlsxPath);
+      payload = aggregateWeeklyPayload({
+        advertiser: clientId,
+        rows,
+        targetWeek: args.targetWeekLabel,
+        compareWeek: args.compareWeekLabel,
+      });
+    } else {
+      throw new Error(
+        "prepare_weekly_dashboard: either a payloadProvider must be configured, or args must include xlsxPath + targetWeekLabel + compareWeekLabel.",
+      );
+    }
+    const ai = await generateAiComment({
+      anthropic,
+      payload,
+    });
+    const minute = Math.floor(Date.now() / 60_000);
+    const payload_hash = computePayloadHash(
+      { client: clientId, week, payload, ai },
+      minute,
+    );
+    const { html_path, xlsx_path } = await writeReportFiles({
+      baseDir: REPORTS_BASE_DIR,
+      client: clientId,
+      week,
+      payload,
+      ai,
+    });
+    const artifact_html = renderArtifactHtml({ payload, ai });
+    await appendHistory({
+      baseDir: HISTORY_BASE_DIR,
+      entry: {
+        week,
+        client: clientId,
+        payload_hash,
+        prepared_at: new Date().toISOString(),
+        html_path,
+        xlsx_path,
+        status: args.correction ? "corrected_prepared" : "prepared",
+      },
+    });
+    return {
+      artifact_html,
+      html_path,
+      xlsx_path,
+      payload_hash,
+      data_warnings: [...payload.data_warnings, ...ai.data_warnings],
+    };
+  };
+
   // ---------------------------------------------------------------------------
   // MCP server wiring
   // ---------------------------------------------------------------------------
@@ -473,6 +630,37 @@ export function createServer(deps: ServerDeps = {}): {
           required: ["startDate", "endDate", "outputPath"],
         },
       },
+      {
+        name: "prepare_weekly_dashboard",
+        description:
+          "Generate the weekly AI commentary report. Returns AE preview artifact HTML plus 광고주 발송용 html and xlsx file paths. AE attaches those files to their mail client.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            client: {
+              type: "string",
+              pattern: "^[a-z0-9]+(-[a-z0-9]+)*$",
+              description: "Client identifier (kebab-case).",
+            },
+            week: {
+              type: "string",
+              pattern: "^\\d{4}-W\\d{2}$",
+              description: "ISO week (e.g. 2026-W17).",
+            },
+            revisions: {
+              type: "string",
+              description:
+                "Optional natural-language revision instructions from the AE.",
+            },
+            correction: {
+              type: "boolean",
+              description:
+                "Set true when re-issuing a correction after a sent report contained an error.",
+            },
+          },
+          required: ["client", "week"],
+        },
+      },
     ],
   }));
 
@@ -513,6 +701,12 @@ export function createServer(deps: ServerDeps = {}): {
             rawArgs,
             tool_generate_report,
           );
+        case "prepare_weekly_dashboard":
+          return runValidated(
+            PrepareWeeklySchema,
+            rawArgs,
+            tool_prepare_weekly_dashboard,
+          );
         default:
           return {
             content: toContentText({ error: `Unknown tool: ${name}` }),
@@ -528,6 +722,16 @@ export function createServer(deps: ServerDeps = {}): {
     }
   });
 
+  // Lazy client-mappings loader (cache after first read).
+  let _mappingsCache: ClientMappingsFile | undefined = deps.clientMappings;
+  function getClientMappings(): ClientMappingsFile {
+    if (_mappingsCache) return _mappingsCache;
+    _mappingsCache = loadClientMappings(
+      deps.clientMappingsPath ?? defaultClientMappingsPath(),
+    );
+    return _mappingsCache;
+  }
+
   const RESOURCES = [
     {
       uri: "naver-ads://report-types",
@@ -541,6 +745,20 @@ export function createServer(deps: ServerDeps = {}): {
       name: "Accounts",
       description:
         "Configured Naver Ads accounts (name + customerId only — no secrets).",
+      mimeType: "application/json",
+    },
+    {
+      uri: "naver-ads://client-mappings",
+      name: "Client Mappings",
+      description:
+        "Weekly report client identifiers and labels (recipients/cc redacted for PII).",
+      mimeType: "application/json",
+    },
+    {
+      uri: "naver-ads://history/{client}",
+      name: "Prepare History",
+      description:
+        "Per-client weekly prepare history (JSONL). Read with naver-ads://history/<client_id>.",
       mimeType: "application/json",
     },
   ] as const;
@@ -572,11 +790,45 @@ export function createServer(deps: ServerDeps = {}): {
             },
           ],
         };
-      default:
+      case "naver-ads://client-mappings":
+        return {
+          contents: [
+            {
+              uri,
+              mimeType: "application/json",
+              text: JSON.stringify(
+                toPublicResourcePayload(getClientMappings()),
+              ),
+            },
+          ],
+        };
+      default: {
+        // Templated resources: naver-ads://history/{client}
+        const HISTORY_PREFIX = "naver-ads://history/";
+        if (uri.startsWith(HISTORY_PREFIX)) {
+          const clientId = uri.slice(HISTORY_PREFIX.length);
+          if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(clientId)) {
+            throw new McpError(
+              ErrorCode.InvalidRequest,
+              `Invalid client_id in URI: ${uri}`,
+            );
+          }
+          const entries = await readAllHistoryWeeks(HISTORY_BASE_DIR, clientId);
+          return {
+            contents: [
+              {
+                uri,
+                mimeType: "application/json",
+                text: JSON.stringify({ client: clientId, entries }),
+              },
+            ],
+          };
+        }
         throw new McpError(
           ErrorCode.InvalidRequest,
           `Unknown resource: ${uri}`,
         );
+      }
     }
   });
 
@@ -588,6 +840,7 @@ export function createServer(deps: ServerDeps = {}): {
       list_accounts: tool_list_accounts,
       fetch_raw_data: tool_fetch_raw_data,
       generate_report: tool_generate_report,
+      prepare_weekly_dashboard: tool_prepare_weekly_dashboard,
     },
   };
 }

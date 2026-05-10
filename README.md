@@ -143,11 +143,21 @@ npm start
 
 모든 도구는 선택적 `account?: string` 인자를 받습니다. 미지정 시 `accounts.json`의 `default` 광고주 (또는 legacy `.env`의 `default`) 사용.
 
-| 도구                   | 인자                                                           | 반환                                                          |
-| ---------------------- | -------------------------------------------------------------- | ------------------------------------------------------------- |
-| `validate_credentials` | `{account?}`                                                   | `{ok, message}` — 자격증명 유효성 검증                        |
-| `fetch_raw_data`       | `{account?, reportTp, startDate(YYYYMMDD), endDate(YYYYMMDD)}` | `{rows, count, reportTp}`                                     |
-| `generate_report`      | `{account?, startDate, endDate, outputPath}`                   | `{path, sheetNames, visibility, rowCount}` — 10시트 xlsx 생성 |
+| 도구                        | 인자                                                                                      | 반환                                                                                                                |
+| --------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `validate_credentials`      | `{account?}`                                                                              | `{ok, message}` — 자격증명 유효성 검증                                                                              |
+| `fetch_raw_data`            | `{account?, reportTp, startDate(YYYYMMDD), endDate(YYYYMMDD)}`                            | `{rows, count, reportTp}`                                                                                           |
+| `generate_report`           | `{account?, startDate, endDate, outputPath}`                                              | `{path, sheetNames, visibility, rowCount}` — 10시트 xlsx 생성                                                       |
+| `prepare_weekly_dashboard`† | `{client, week, xlsxPath?, targetWeekLabel?, compareWeekLabel?, revisions?, correction?}` | `{artifact_html, html_path, xlsx_path, payload_hash, data_warnings}` — AE 검토용 artifact + 광고주 발송용 html/xlsx |
+
+† v1.6 추가. AE가 `xlsxPath`(helloMAX form)를 업로드하면 `targetWeekLabel`(예: `"2026-05-04주차"`) + `compareWeekLabel`로 주간 KPI를 집계, Anthropic Claude를 호출해 review/insights/actions 생성, AE 검토용 artifact HTML과 광고주 발송용 html/xlsx 파일 두 개를 `~/.naver-ads-mcp/reports/{client}/{week}.{html|xlsx}`에 저장합니다. AE는 메일 클라이언트에서 그 파일들을 첨부해 광고주에게 직접 발송합니다 (외부 Email MCP 의존 없음). 자세한 흐름과 책임 분리는 `docs/exec-plans/active/weekly-report-automation-plan.md` v1.6을 참조하세요.
+
+### v1.6 추가 리소스
+
+| URI                            | 내용                                                                                |
+| ------------------------------ | ----------------------------------------------------------------------------------- |
+| `naver-ads://client-mappings`  | 광고주 매핑 (client_id, display_name, customer_id) — recipients/cc는 PII 마스킹     |
+| `naver-ads://history/{client}` | 광고주별 prepare 이력 JSONL (week, payload_hash, prepared_at, html_path, xlsx_path) |
 
 ## 데이터 보관 기간 (Naver 공식)
 

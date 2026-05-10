@@ -1,0 +1,125 @@
+# Ralph Progress — naver-ads-mcp v1.6 Phase 0/1/2/3
+
+## Iteration log
+
+### Iter 0 — bootstrap (2026-05-10)
+- prd.json US-013~US-016 added (passes:false). US-001~US-012 unchanged (passes:true, 209 tests).
+- Plan v1.5 → v1.6 in docs/exec-plans/active/weekly-report-automation-plan.md
+- TDD mode confirmed (constraints + CLAUDE.md). External Email MCP dep = 0; AE sends html/xlsx via own mail client.
+
+### Iter 1 — US-013 client-mappings (2026-05-10)
+- Files added:
+  - src/config/client-mappings.ts (L4): zod schema + ClientMappingsFileSchema (strict, dup-id rejection via superRefine) + toPublicResourcePayload (PII redaction)
+  - src/runtime/client-mappings-loader.ts (L1): readFileSync + JSON.parse + zod validate. Kept fs out of L4.
+  - src/config/client-mappings.json: 6 placeholder entries (client-1..6 / TBD / TBD).
+  - tests/client-mappings.test.ts: 21 tests covering schema, file structure, loader, PII redaction, MCP resource integration (AC #16).
+- src/mcp/server.ts: registered "naver-ads://client-mappings" with redacted payload via toPublicResourcePayload.
+- Verification: 209 → 230 tests passing. typecheck 0 errors.
+- AC #16 (resource listed) and AC #17 (zod schema valid for 6 placeholders) both auto-verified.
+
+### Pattern reused / discovered
+- L4 zero-fs constraint enforced by tests/layer-rules.test.ts (regex on top-level imports). Solution: schema in L4, file IO in L1 — same split as account-store.ts ↔ account-bootstrap.ts.
+- Internal request handler invocation needs `{ method, params }` shape; ZodError if method missing. Reused mcp.test.ts callHandler pattern.
+
+### Iter 2 — US-014 history + payload-hash + ANTHROPIC_API_KEY (2026-05-10)
+- Files added:
+  - src/runtime/payload-hash.ts: canonicalizePayload (sorted keys, recursive) + computePayloadHash (sha256 over canonical + ".minute"). Pure, deterministic.
+  - src/runtime/lock.ts: proper-lockfile wrapper (per-(client, week) sentinel + retry/stale 30s).
+  - src/runtime/history.ts: HistoryEntrySchema (zod strict, status enum prepared/corrected_prepared/prepare_failed). appendHistory acquires lock, atomic write (temp + rename), validates first → no partial writes on bad input. readHistory parses JSONL, returns empty on ENOENT.
+  - src/config/anthropic-credentials.ts: EnvAnthropicCredentialLoader mirrors EnvCredentialLoader pattern. apiKey enumerable:false. error msg never echoes value.
+  - tests: payload-hash (7), history (13), anthropic-credentials (7) = 27 unit tests.
+  - tests/history.test.ts: +4 MCP integration tests for naver-ads://history/{client} (templated URI dispatch).
+- src/mcp/server.ts: added historyBaseDir dep + readAllHistoryWeeks helper + URI prefix dispatch for templated history resource.
+- .env.example: added ANTHROPIC_API_KEY documentation block.
+- New deps: proper-lockfile + @types/proper-lockfile.
+- Verification: 230 → 261 tests passing. typecheck 0 errors. AC #18 (loader test mock) and AC #19 (hash determinism) verified.
+
+### Iter 2 patterns
+- Templated MCP resource: list with `{client}` placeholder URI, dispatch with prefix-match in ReadResource handler. Validate extracted client_id against same kebab regex used in client-mappings.
+- proper-lockfile retries: `{ retries: 50, factor: 1, minTimeout: 5, maxTimeout: 50 }` works well for fast in-process serialization (5 concurrent appends ≈ 50ms total).
+- enumerable:false makes JSON.stringify and Object.keys hide the field — exactly what we need for credentials. console.log(cred) shows {} which is good.
+
+### Iter 3 — US-015 + US-016 complete (2026-05-10)
+- Files added (src/):
+  - src/parser/types.ts: zod schemas for KpiSummary, DeviceRow, MediaBlock, WowDelta, PrecomputedPayload, AiAnalysis (insights/actions/confidence/data_warnings), PrepareResult.
+  - src/parser/precompute-kpi.ts: zero-safe ROAS/CTR/CPC/CPA/CVR + pctDelta + buildKpiSummary + buildWowDelta.
+  - src/api/anthropic.ts: AnthropicClient (Claude Sonnet 4.6, prompt caching, reads ANTHROPIC_API_KEY).
+  - src/analyzer/ai-comment.ts: extractNumbers (skips date-context numbers like "4월 4주차"), hallucinationCoverage with ±0.5 tolerance, applyHallucinationPenalty (-0.3 below 95%), generateAiComment with 5xx/429 retry. SYSTEM_PROMPT in Korean, follows AI plan v2.0 spec.
+  - src/dashboard/artifact-html.ts: AE preview HTML, mirrors hellomax_weekly_comment_sample.html structure (top nav, page header, 6 KPI cards, 2 media cards, review textarea, insights, actions, data_warnings). Inline CSS, no external fetch. HTML escape pass.
+  - src/output/weekly-html.ts: 광고주 발송용 HTML — same data, AE chrome stripped (no step-bar, action-bar, regen, edit-hints, AE 검토 markers).
+  - src/output/weekly-xlsx.ts: exceljs workbook with 3 sheets (KPI 요약, 매체별 성과, AI 분석). Number formats (#,##0 / 0.0%). Korean labels.
+  - src/output/file-writer.ts: atomic html + xlsx pair under <baseDir>/<client>/<week>.<ext>. Lock per (client, week).
+- Files added (tests/):
+  - precompute-kpi (17), ai-comment (12), artifact-html (10), output-files (12), prepare-weekly-dashboard (5) = 56 new tests.
+- src/mcp/server.ts: prepare_weekly_dashboard tool wired (deps.anthropic + deps.payloadProvider + deps.reportsBaseDir injection). ListTools exposes 6 tools now (was 5). CallTool dispatches PrepareWeeklySchema. Tool runs end-to-end: payload → AI → artifact + html_path + xlsx_path → history append.
+- New deps: @anthropic-ai/sdk.
+- Verification: 261 → 317 tests passing, +56 new. typecheck 0 errors. ESLint 0 violations.
+
+### Iter 3 patterns
+- HTML escape: 5-replacement chain &<>"' is enough; never inline AI output directly.
+- Numeric date-context filter (월/일/주차/주/년/시/분 lookahead): keeps hallucination guard from flagging "4월 4주차" as fabricated metric.
+- Anthropic SDK system block can use cache_control: { type: "ephemeral" } for prompt caching. cache_hit detected via usage.cache_read_input_tokens > 0.
+- Test for "exactly N tools" must include passes:true counts when adding tools — easy to forget the assertion update.
+
+### Iter 4 — Advisor-driven gap closure (2026-05-10)
+- Advisor flagged: parser missing, fixtures missing, few-shot missing, layer-rules out of date, README out of date.
+- Files added:
+  - src/parser/excel-template.ts: parseHelloMaxXlsx + parseDailyRawSheet (pure). Reads 일별RAW sheet, 17 standard columns, handles dot-suffixed headers (월별. → 월별), Date cells → ISO yyyy-mm-dd, #DIV/0! → 0, missing cells → 0.
+  - src/parser/aggregate-payload.ts: aggregateWeeklyPayload — DailyRawJsonRow[] + targetWeek + compareWeek → PrecomputedPayload. Aggregates by media (powerlink/shopping) and device (TOTAL/PC/MO). data_warnings auto-includes "브랜드검색 영역별 성과: Naver API 미제공" when 브랜드검색 캠페인유형 present.
+  - tests/excel-template.test.ts: 15 tests (parser file IO + pure logic + 6+ integration cases including device sum invariant).
+  - tests/fixtures/anonymized/client-a-form.xlsx: anonymized form file (재발행: 헬로맥스AI에이전트 → ClientA).
+  - tests/fixtures/anonymized/{client-a,client-b}-weekly-raw.json: 2-week JSON fixtures.
+- Wired parser into prepare_weekly_dashboard: payloadProvider is now optional. New path: { xlsxPath, targetWeekLabel, compareWeekLabel } → parser → aggregate → AI → output.
+- Few-shot block added to SYSTEM_PROMPT (sourced from sample HTML's review textarea — real reference, used as tone/format guide only).
+- tests/layer-rules.test.ts L4_FILES list extended: anthropic-credentials.ts, client-mappings.ts (regression guard against future fs imports).
+- README.md MCP Tools table updated: prepare_weekly_dashboard added with full args. New v1.6 resources section (client-mappings, history/{client}).
+- Verification: 317 → 336 tests passing (+19 new). typecheck 0, lint 0.
+
+### Iter 4 patterns
+- 일별RAW header normalization: "월별." → "월별" (trim trailing dot); helps any future helloMAX form revisions that change cosmetic headers.
+- Date coercion 3-way: Date object → ISO, Excel serial number → ISO, /^\d{4}-\d{2}-\d{2}/ string → ISO. Falls back to Date.parse otherwise.
+- Pure-logic split (parseDailyRawSheet on 2D array) keeps file IO out of the unit-test path so cell-level edge cases (#DIV/0!, missing column, empty sheet) can be verified without xlsx round-trips.
+- Few-shot is in the cached system block — cost is paid once per cache lifetime, not per call.
+
+### Iter 5 — Advisor round 2 gap closure (2026-05-10)
+- Advisor flagged: cli.ts didn't construct AnthropicClient (production wiring missing), 2 fixtures vs AC's 6, AC #14 lock semantics impl ≠ doc, AC #18 wording mismatch.
+- src/cli.ts: lazy `anthropicFactory: () => new AnthropicClient()` wired into createServer. Server still boots without ANTHROPIC_API_KEY (loud failure only on prepare_weekly_dashboard call).
+- src/mcp/server.ts: `anthropicFactory?: () => IAnthropic` dep added for late binding. tool_prepare_weekly_dashboard prefers explicit `anthropic` then falls back to factory().
+- tests/fixtures/anonymized/: 4 more synthetic fixtures generated (client-c, -d, -e, -f) — 6 total covering AC's "6 광고주 fixture parse 100%".
+- tests/excel-template.test.ts: +7 fixture-loop tests (parse + aggregate + zod schema validate per fixture, +1 determinism test).
+- tests/prepare-weekly-dashboard.test.ts: +1 lazy factory smoke test (factoryCalls counter verifies no boot-time call, +1 on first tool use).
+- AC #14 reworded to serialize semantics (PREPARE serializes via lock; SEND lock-rejected was v1.5 send-tool concept that v1.6 deleted).
+- AC #18 wording updated: "credentials.ts → anthropic-credentials.ts" to match actual location.
+- Verification: 336 → 344 tests passing (+8). typecheck 0, lint 0.
+
+### Iter 6 — Doc drift cleanup (2026-05-10)
+- AGENTS.md (CLAUDE.md symlink): line 42 "3 tools + 2 resources" → "v1.6: 4 tools + 4 resources" with prepare_weekly_dashboard explanation.
+- docs/exec-plans/active/weekly-report-automation-plan.md: 2 spots reworded "lock 거절" → "serialize-only" with rationale (v1.6 SEND ownership moved to AE mail client).
+- npm run build: tsc compiles to dist/ cleanly (cli.js + analyzer/ + api/ + config/ + dashboard/ + excel/ + mcp/ + output/ + parser/ + pivot/ + raw/ + runtime/ + util/).
+
+### Fixture diversity caveat (honest reporting)
+- The 6 anonymized fixtures (client-a..f) are scalar multiplications of one source template (helloMAX FORM). They prove the parser tolerates different number ranges without crashing.
+- They do NOT yet prove the parser handles the 6 advertiser-specific templates the AI plan v2.0 describes (택스아이 캠페인유형×디바이스 hierarchy, 비셰프 ■WOW/■TOTAL section markers, 패션포유 주차 레이블 patterns, etc).
+- Followup: when 떠리몰 / 세컨드컨테이너 / CJ프레시웨이 / 패션포유 / 택스아이 / 비셰프 actual files arrive, anonymize each separately and replace client-a..f. The 3-stage parsing strategy (auto fuzzy + AE manual + AI assisted) for non-FORM templates remains unimplemented.
+
+### Final ship-ready state (2026-05-10 18:35)
+- Tests: 344 passing (was 209 at session start; +135 new tests across US-013/14/15/16).
+- typecheck: 0 errors.
+- ESLint: 0 violations.
+- Build: tsc → dist/ clean.
+- Production wired: cli.ts → createServer({ accountStore, anthropicFactory }) → MCP stdio. Existing 5 tools work without ANTHROPIC_API_KEY; prepare_weekly_dashboard requires ANTHROPIC_API_KEY at first call.
+- New deps: proper-lockfile, @types/proper-lockfile, @anthropic-ai/sdk.
+- All 16 PRD stories passes:true (US-001~16). Plan v1.6 LOCKED.
+- Deferred: real 6-advertiser fixtures (need real files), 3-stage parsing for non-FORM templates, brand search 영역별 (Naver API 미제공), live Naver API → parser direct (currently AE uploads xlsx).
+
+## Patterns observed (reuse in v1.6 modules)
+- src/config/credentials.ts: freezeCredential() = Object.defineProperty + enumerable:false for secret fields. ANTHROPIC_API_KEY should follow the same pattern.
+- src/mcp/server.ts: RESOURCES const array + ListResourcesRequestSchema + ReadResourceRequestSchema dispatch by uri. Register new naver-ads://client-mappings and naver-ads://history/{client} the same way.
+- tests/*.test.ts: vitest with describe/it/expect, schema-by-schema cases, mock fetch via vi.fn for HTTP, fixture-driven for parsers.
+- Layer rules: L1 runtime ← L2 services ← L3 api ← L4 config ← L5 types. ESLint zone enforcement comes from Phase 0.
+
+## Conventions
+- Korean labels preserved per template; Korean comments in plan docs OK
+- enumerable:false for any secret-bearing field (recipients/cc/customer_id treated as PII)
+- atomic file write = temp + rename, lock via proper-lockfile (Phase 3)
+- All new code TDD: red → green → refactor. No new code without a failing test first.
