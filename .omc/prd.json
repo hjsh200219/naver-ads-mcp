@@ -263,6 +263,65 @@
         "Total Phase 3 신규 tests ≥ 10",
         "AE 발송 가이드 README 섹션 추가: prepare 결과의 html_path/xlsx_path를 본인 메일 클라이언트(Gmail/Outlook 등)에서 첨부해 광고주에게 직접 발송"
       ]
+    },
+    {
+      "id": "US-017",
+      "title": "[v1.6 Phase 3.5] Daily threshold engine (pure, per-client override)",
+      "priority": 17,
+      "passes": true,
+      "acceptanceCriteria": [
+        "src/analyzer/thresholds.ts exports DEFAULT_DAILY_THRESHOLDS = { roas_mom_pct: -20, cpc_mom_pct: 30, impressions_dod_pct: -50 }",
+        "src/analyzer/thresholds.ts exports ThresholdConfigSchema (zod) with same 3 numeric fields, all optional (per-client partial override) — kept in L2 (no fs)",
+        "src/analyzer/thresholds.ts exports resolveThresholds(clientOverride?) that merges DEFAULT with the override (override wins, missing keys fall back to default)",
+        "src/analyzer/thresholds.ts exports evaluateThresholds(metrics, thresholds) → ThresholdViolation[] where ThresholdViolation = { metric: 'roas_mom' | 'cpc_mom' | 'impressions_dod', actual_pct: number, threshold_pct: number, severity: 'breach' }",
+        "Breach rule: a metric breaches when its actual_pct is worse than the threshold in the configured direction (roas_mom_pct<=threshold for negative thresholds, cpc_mom_pct>=threshold for positive). Zero-baseline cases (prev=0) do not breach (no division-by-zero alerts)",
+        "tests/thresholds.test.ts covers: defaults exported, schema validation (valid partial, invalid field rejected), resolveThresholds merges correctly, evaluateThresholds detects each metric individually, no breach when prev=0, no breach inside tolerance",
+        "Total US-017 신규 tests ≥ 8",
+        "Layer rules respected: L2 analyzer/* may only import L3+ (no L1 runtime/, no L1 mcp/, no node:fs)"
+      ]
+    },
+    {
+      "id": "US-018",
+      "title": "[v1.6 Phase 3.5] client-mappings schema extended with optional thresholds",
+      "priority": 18,
+      "passes": true,
+      "acceptanceCriteria": [
+        "ClientMappingSchema (L4 src/config/client-mappings.ts) accepts optional `daily_thresholds` field validated by ThresholdConfigSchema (re-imported from L2 — exception: schema is a pure zod object, no fs, layer-rules zone updated if needed; simplest path: duplicate the 3-field zod schema in L4 to avoid L4→L2 import; PRD acceptance is structural not stylistic)",
+        "src/config/client-mappings.json: each of the 6 placeholder entries can omit daily_thresholds (default applies). Schema parse still passes with no per-client override",
+        "PublicClientMapping / toPublicResourcePayload includes daily_thresholds when present (it is configuration, not PII)",
+        "tests/client-mappings.test.ts gains at least 3 new tests: (a) parse succeeds when daily_thresholds present with valid values, (b) parse fails when daily_thresholds.roas_mom_pct is not a number, (c) toPublicResourcePayload preserves daily_thresholds field",
+        "Existing 21 client-mappings tests continue to pass (zero regressions)"
+      ]
+    },
+    {
+      "id": "US-019",
+      "title": "[v1.6 Phase 3.5] aggregateDailyPayload (DoD + MoM) reusing weekly aggregator primitives",
+      "priority": 19,
+      "passes": true,
+      "acceptanceCriteria": [
+        "src/parser/aggregate-daily.ts exports aggregateDailyPayload({ advertiser, rows, targetDate, compareDateDoD, compareDateMoM }) → DailyPayload",
+        "DailyPayload type (src/parser/types.ts): { advertiser, target_date, compare_dod_date, compare_mom_date, kpi_target, kpi_dod, kpi_mom, deltas: { dod_pct: {...metrics}, mom_pct: {...metrics} }, derived: { cpc_mom_pct, roas_mom_pct, impressions_dod_pct }, data_warnings: string[] }",
+        "Reuses precompute-kpi.ts (buildKpiSummary, pctDelta) — no new KPI math. CPC = cost / clicks (zero-safe). Derived metric names match the threshold engine field keys exactly",
+        "rows filter is by 날짜 (date column) not 주차 — single-day slices. Sum across all media/devices (TOTAL only — daily report is a quick health check, not a deep breakdown)",
+        "data_warnings includes 'D-1 데이터 없음' when targetDate slice is empty, and 'MoM 비교 데이터 없음' when compareDateMoM slice is empty",
+        "tests/aggregate-daily.test.ts ≥ 6 tests: empty target, empty MoM, zero-baseline DoD percent, normal DoD/MoM with realistic numbers, advertiser passthrough, data_warnings flags"
+      ]
+    },
+    {
+      "id": "US-020",
+      "title": "[v1.6 Phase 3.5] prepare_daily_dashboard MCP tool (orchestrates threshold + analyzer reuse + stdout alert)",
+      "priority": 20,
+      "passes": true,
+      "acceptanceCriteria": [
+        "src/mcp/server.ts registers tool `prepare_daily_dashboard` with args { date: 'YYYY-MM-DD', payloadProvider?: ...(test injection only) } — production injection path mirrors prepare_weekly_dashboard (payloadProvider) so the tool stays testable without invoking buildDailyRaw stub",
+        "Tool returns { date, violations: ThresholdViolation[], summary: { client, violation_count }[], data_warnings: string[] } — 6 광고주에 대해 evaluateThresholds 결과를 모아 violation count 내림차순으로 정렬",
+        "Stdout alert: when any client has ≥1 violation, MCP server logs a structured JSON line { ts, level:'warn', op:'prepare_daily_dashboard', date, total_violations, by_client: [...] } to stdout. Slack 미구현 (사용자 결정 v1.0). 알림 채널은 stdout + history JSONL",
+        "history.appendHistory writes one entry per client with status 'daily_prepared' (extend HistoryEntrySchema status enum) and the violation summary, atomic per-client",
+        "tests/prepare-daily-dashboard.test.ts ≥ 6 tests: (a) all-clean 0 violations 0 alert, (b) single-client breach triggers alert + history entry, (c) multi-client sort by violation_count desc, (d) per-client threshold override honored (uses client_mappings daily_thresholds), (e) data_warnings propagated from aggregateDailyPayload, (f) payloadProvider injection path verified",
+        "Latency budget: end-to-end test with 6 mocked clients completes in ≤ 5 seconds (CI machine). AC #12 in plan says ≤60s end-to-end, our injected-payload test floor is far tighter",
+        "MCP tool count in tests/mcp.test.ts updated 6→7. naver-ads://history/{client} resource shows daily entries alongside weekly (no resource changes needed — same shape)",
+        "Total US-020 신규 tests ≥ 6"
+      ]
     }
   ]
 }

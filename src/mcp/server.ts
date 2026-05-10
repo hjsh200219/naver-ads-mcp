@@ -49,8 +49,18 @@ import { generateAiComment, type IAnthropic } from "../analyzer/ai-comment.js";
 import type { PrecomputedPayload } from "../parser/types.js";
 import { parseHelloMaxXlsx } from "../parser/excel-template.js";
 import { aggregateWeeklyPayload } from "../parser/aggregate-payload.js";
+import {
+  aggregateDailyPayload,
+  type DailyPayload,
+} from "../parser/aggregate-daily.js";
+import {
+  evaluateThresholds,
+  resolveThresholds,
+  type ThresholdViolation,
+} from "../analyzer/thresholds.js";
 import os from "node:os";
 import path from "node:path";
+import crypto from "node:crypto";
 
 export interface ServerDeps {
   /** Multi-account registry. If omitted, falls back to legacy env-var single-account behaviour. */
@@ -81,6 +91,11 @@ export interface ServerDeps {
     client: string;
     week: string;
   }) => Promise<PrecomputedPayload>;
+  /** v1.6 Phase 3.5 — provider that returns a DailyPayload for (client, date). Tests inject. */
+  dailyPayloadProvider?: (args: {
+    client: string;
+    date: string;
+  }) => Promise<DailyPayload>;
 }
 
 // ---------------------------------------------------------------------------
@@ -115,6 +130,13 @@ const GenerateReportSchema = z.object({
 const ClientIdPattern = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const WeekPattern = /^\d{4}-W\d{2}$/;
 const WeeklyLabelPattern = /^\d{4}-\d{2}-\d{2}주차$/;
+const DatePattern = /^\d{4}-\d{2}-\d{2}$/;
+
+const PrepareDailySchema = z
+  .object({
+    date: z.string().regex(DatePattern),
+  })
+  .strict();
 const PrepareWeeklySchema = z
   .object({
     client: z.string().regex(ClientIdPattern),
@@ -179,7 +201,7 @@ async function readAllHistoryWeeks(
     throw err;
   }
   const weeks = names
-    .filter((n) => /^\d{4}-W\d{2}\.jsonl$/.test(n))
+    .filter((n) => /^(\d{4}-W\d{2}|\d{4}-\d{2}-\d{2})\.jsonl$/.test(n))
     .map((n) => n.replace(/\.jsonl$/, ""))
     .sort();
   const out: unknown[] = [];
@@ -216,6 +238,9 @@ export function createServer(deps: ServerDeps = {}): {
     ) => Promise<unknown>;
     prepare_weekly_dashboard: (
       args: z.infer<typeof PrepareWeeklySchema>,
+    ) => Promise<unknown>;
+    prepare_daily_dashboard: (
+      args: z.infer<typeof PrepareDailySchema>,
     ) => Promise<unknown>;
   };
 } {
@@ -574,6 +599,89 @@ export function createServer(deps: ServerDeps = {}): {
   };
 
   // ---------------------------------------------------------------------------
+  // prepare_daily_dashboard (US-020, Phase 3.5)
+  // ---------------------------------------------------------------------------
+
+  const tool_prepare_daily_dashboard = async (
+    args: z.infer<typeof PrepareDailySchema>,
+  ): Promise<unknown> => {
+    const mappings = getClientMappings();
+    const provider = deps.dailyPayloadProvider;
+    if (!provider) {
+      throw new Error(
+        "prepare_daily_dashboard requires a dailyPayloadProvider (test injection); live buildDailyRaw wiring is not yet implemented.",
+      );
+    }
+
+    const summary: { client: string; violation_count: number }[] = [];
+    const allViolations: (ThresholdViolation & { client: string })[] = [];
+    const allWarnings: string[] = [];
+
+    for (const m of mappings.mappings) {
+      const payload = await provider({ client: m.client_id, date: args.date });
+      const thresholds = resolveThresholds(m.daily_thresholds);
+      const violations = evaluateThresholds(payload.derived, thresholds);
+      summary.push({
+        client: m.client_id,
+        violation_count: violations.length,
+      });
+      for (const v of violations) {
+        allViolations.push({ ...v, client: m.client_id });
+      }
+      for (const w of payload.data_warnings) {
+        allWarnings.push(`${m.client_id}: ${w}`);
+      }
+      if (violations.length > 0) {
+        const payload_hash = crypto
+          .createHash("sha256")
+          .update(
+            JSON.stringify({
+              client: m.client_id,
+              date: args.date,
+              violations,
+            }),
+          )
+          .digest("hex");
+        await appendHistory({
+          baseDir: HISTORY_BASE_DIR,
+          entry: {
+            week: args.date,
+            client: m.client_id,
+            payload_hash,
+            prepared_at: new Date().toISOString(),
+            html_path: "",
+            xlsx_path: "",
+            status: "daily_prepared",
+            violation_count: violations.length,
+          },
+        });
+      }
+    }
+
+    summary.sort((a, b) => b.violation_count - a.violation_count);
+
+    if (allViolations.length > 0) {
+      console.warn(
+        JSON.stringify({
+          ts: new Date().toISOString(),
+          level: "warn",
+          op: "prepare_daily_dashboard",
+          date: args.date,
+          total_violations: allViolations.length,
+          by_client: summary.filter((s) => s.violation_count > 0),
+        }),
+      );
+    }
+
+    return {
+      date: args.date,
+      violations: allViolations,
+      summary,
+      data_warnings: allWarnings,
+    };
+  };
+
+  // ---------------------------------------------------------------------------
   // MCP server wiring
   // ---------------------------------------------------------------------------
 
@@ -661,6 +769,22 @@ export function createServer(deps: ServerDeps = {}): {
           required: ["client", "week"],
         },
       },
+      {
+        name: "prepare_daily_dashboard",
+        description:
+          "Run daily KPI threshold check across all configured advertisers. Returns violation summary sorted by severity. Emits a stdout warn-level JSON line when any breach is detected and appends a daily_prepared entry to the per-client history JSONL.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            date: {
+              type: "string",
+              pattern: "^\\d{4}-\\d{2}-\\d{2}$",
+              description: "Target date in YYYY-MM-DD.",
+            },
+          },
+          required: ["date"],
+        },
+      },
     ],
   }));
 
@@ -706,6 +830,12 @@ export function createServer(deps: ServerDeps = {}): {
             PrepareWeeklySchema,
             rawArgs,
             tool_prepare_weekly_dashboard,
+          );
+        case "prepare_daily_dashboard":
+          return runValidated(
+            PrepareDailySchema,
+            rawArgs,
+            tool_prepare_daily_dashboard,
           );
         default:
           return {
@@ -841,6 +971,7 @@ export function createServer(deps: ServerDeps = {}): {
       fetch_raw_data: tool_fetch_raw_data,
       generate_report: tool_generate_report,
       prepare_weekly_dashboard: tool_prepare_weekly_dashboard,
+      prepare_daily_dashboard: tool_prepare_daily_dashboard,
     },
   };
 }

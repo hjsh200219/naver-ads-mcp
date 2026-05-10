@@ -9,18 +9,26 @@ import path from "node:path";
 import { z } from "zod";
 import { acquireLock } from "./lock.js";
 
+// `week` accepts both ISO week (2026-W17) for weekly entries and yyyy-mm-dd
+// for daily entries (US-020); the field is used as the filename key.
 export const HistoryEntrySchema = z
   .object({
-    week: z.string().regex(/^\d{4}-W\d{2}$/),
+    week: z.string().regex(/^(\d{4}-W\d{2}|\d{4}-\d{2}-\d{2})$/),
     client: z
       .string()
       .min(1)
       .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/),
     payload_hash: z.string().regex(/^[0-9a-f]{64}$/),
     prepared_at: z.string().min(1),
-    html_path: z.string().min(1),
-    xlsx_path: z.string().min(1),
-    status: z.enum(["prepared", "corrected_prepared", "prepare_failed"]),
+    html_path: z.string(),
+    xlsx_path: z.string(),
+    status: z.enum([
+      "prepared",
+      "corrected_prepared",
+      "prepare_failed",
+      "daily_prepared",
+    ]),
+    violation_count: z.number().int().min(0).optional(),
   })
   .strict();
 

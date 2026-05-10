@@ -75,9 +75,18 @@ describe("US-014 HistoryEntry schema", () => {
     ).toBe(false);
   });
 
-  it("rejects week format other than YYYY-Www", () => {
+  it("accepts both ISO week (YYYY-Www) and date (YYYY-MM-DD)", () => {
+    expect(
+      HistoryEntrySchema.safeParse(sampleEntry({ week: "2026-W18" })).success,
+    ).toBe(true);
     expect(
       HistoryEntrySchema.safeParse(sampleEntry({ week: "2026-05-08" })).success,
+    ).toBe(true);
+  });
+
+  it("rejects week values that match neither format", () => {
+    expect(
+      HistoryEntrySchema.safeParse(sampleEntry({ week: "garbage" })).success,
     ).toBe(false);
   });
 

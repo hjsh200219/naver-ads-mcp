@@ -256,3 +256,80 @@ describe("US-013 MCP resource integration (AC #16)", () => {
     expect(item.text).not.toMatch(/"cc"/);
   });
 });
+
+describe("US-018 daily_thresholds extension", () => {
+  const baseMapping: ClientMapping = {
+    client_id: "bishef",
+    display_name: "비셰프",
+    customer_id: "1234567",
+    recipients: [],
+    cc: [],
+    automation_enabled: true,
+  };
+
+  it("accepts mapping without daily_thresholds (default path)", () => {
+    const result = ClientMappingSchema.safeParse(baseMapping);
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts mapping with valid daily_thresholds partial", () => {
+    const m = { ...baseMapping, daily_thresholds: { roas_mom_pct: -25 } };
+    const result = ClientMappingSchema.safeParse(m);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.daily_thresholds).toEqual({ roas_mom_pct: -25 });
+    }
+  });
+
+  it("accepts full daily_thresholds override", () => {
+    const m = {
+      ...baseMapping,
+      daily_thresholds: {
+        roas_mom_pct: -10,
+        cpc_mom_pct: 40,
+        impressions_dod_pct: -30,
+      },
+    };
+    const result = ClientMappingSchema.safeParse(m);
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects daily_thresholds with non-numeric value", () => {
+    const m = {
+      ...baseMapping,
+      daily_thresholds: { roas_mom_pct: "bad" },
+    };
+    const result = ClientMappingSchema.safeParse(m);
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects daily_thresholds with unknown nested field", () => {
+    const m = {
+      ...baseMapping,
+      daily_thresholds: { roas_mom_pct: -20, unknown_metric: 1 },
+    };
+    const result = ClientMappingSchema.safeParse(m);
+    expect(result.success).toBe(false);
+  });
+
+  it("toPublicResourcePayload preserves daily_thresholds when present", () => {
+    const file = {
+      mappings: [
+        {
+          ...baseMapping,
+          daily_thresholds: { cpc_mom_pct: 50 },
+        },
+      ],
+    };
+    const parsed = ClientMappingsFileSchema.parse(file);
+    const pub = toPublicResourcePayload(parsed);
+    expect(pub.mappings[0].daily_thresholds).toEqual({ cpc_mom_pct: 50 });
+  });
+
+  it("toPublicResourcePayload omits daily_thresholds when absent", () => {
+    const file = { mappings: [baseMapping] };
+    const parsed = ClientMappingsFileSchema.parse(file);
+    const pub = toPublicResourcePayload(parsed);
+    expect(pub.mappings[0].daily_thresholds).toBeUndefined();
+  });
+});
