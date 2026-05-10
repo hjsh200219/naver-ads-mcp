@@ -37,16 +37,16 @@ TypeScript MCP server that automates Naver Search Ad data collection and generat
 - **L5 Types**: `src/api/types.ts`, `src/pivot/types.ts`
 - **L4 Config**: `src/config/credentials.ts`
 - **L3 API**: `src/api/{client,signer,stat-reports,metadata}.ts`
-- **L2 Service**: `src/{raw,pivot,excel,util}/`
+- **L2 Service**: `src/{raw,pivot,excel,util,analyzer,parser}/`
 - **L1 Runtime**: `src/{mcp/server,cli,index}.ts`
-  - MCP surface (v1.6): **4 tools** (`validate_credentials`, `fetch_raw_data`, `generate_report`, `prepare_weekly_dashboard`) + **4 resources** (`naver-ads://report-types`, `naver-ads://accounts`, `naver-ads://client-mappings`, `naver-ads://history/{client}`). `prepare_weekly_dashboard`는 helloMAX form xlsx → AI 분석 → AE preview artifact + 광고주 발송용 html/xlsx 파일 저장. 발송은 AE가 메일 클라이언트에서 직접 첨부 (외부 Email MCP 의존 없음).
+  - MCP surface (v1.6 + Phase 3.5): **5 tools** (`validate_credentials`, `fetch_raw_data`, `generate_report`, `prepare_weekly_dashboard`, `prepare_daily_dashboard`) + **4 resources** (`naver-ads://report-types`, `naver-ads://accounts`, `naver-ads://client-mappings`, `naver-ads://history/{client}`). `prepare_weekly_dashboard`는 helloMAX form xlsx → AI 분석 → AE preview artifact + 광고주 발송용 html/xlsx 파일 저장. `prepare_daily_dashboard`는 일별 성과 자동화 (Phase 3.5). 발송은 AE가 메일 클라이언트에서 직접 첨부 (외부 Email MCP 의존 없음).
 
 ## Health Stack
 
 | 명령                | 용도                       |
 | ------------------- | -------------------------- |
 | `npm run typecheck` | TypeScript 검증 (0 errors) |
-| `npm test`          | vitest run (209 passing)   |
+| `npm test`          | vitest run (388 passing)   |
 | `npm run build`     | tsc → dist/                |
 
 ## Critical Constraints
