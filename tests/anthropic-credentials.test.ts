@@ -6,18 +6,24 @@ import {
 } from "../src/config/anthropic-credentials.js";
 
 const ENV_KEY = "ANTHROPIC_API_KEY";
+const ALT_KEY = "CLAUDE_API_KEY";
 
 describe("US-014 ANTHROPIC_API_KEY loader (AC #18)", () => {
-  let saved: string | undefined;
+  let savedAnthropic: string | undefined;
+  let savedClaude: string | undefined;
 
   beforeEach(() => {
-    saved = process.env[ENV_KEY];
+    savedAnthropic = process.env[ENV_KEY];
+    savedClaude = process.env[ALT_KEY];
     delete process.env[ENV_KEY];
+    delete process.env[ALT_KEY];
   });
 
   afterEach(() => {
-    if (saved === undefined) delete process.env[ENV_KEY];
-    else process.env[ENV_KEY] = saved;
+    if (savedAnthropic === undefined) delete process.env[ENV_KEY];
+    else process.env[ENV_KEY] = savedAnthropic;
+    if (savedClaude === undefined) delete process.env[ALT_KEY];
+    else process.env[ALT_KEY] = savedClaude;
   });
 
   it("loads ANTHROPIC_API_KEY when present", () => {
@@ -71,5 +77,36 @@ describe("US-014 ANTHROPIC_API_KEY loader (AC #18)", () => {
     const cred: AnthropicCredentials =
       new EnvAnthropicCredentialLoader().load();
     expect(cred.apiKey).toBe("sk-ant-direct-access");
+  });
+
+  it("accepts CLAUDE_API_KEY as alias when ANTHROPIC_API_KEY is missing", () => {
+    process.env[ALT_KEY] = "sk-ant-via-claude-alias";
+    const cred = new EnvAnthropicCredentialLoader().load();
+    expect(cred.apiKey).toBe("sk-ant-via-claude-alias");
+  });
+
+  it("ANTHROPIC_API_KEY takes precedence when both are present", () => {
+    process.env[ENV_KEY] = "sk-ant-primary";
+    process.env[ALT_KEY] = "sk-ant-alias";
+    const cred = new EnvAnthropicCredentialLoader().load();
+    expect(cred.apiKey).toBe("sk-ant-primary");
+  });
+
+  it("strips surrounding double quotes from value", () => {
+    process.env[ENV_KEY] = '"sk-ant-with-quotes"';
+    const cred = new EnvAnthropicCredentialLoader().load();
+    expect(cred.apiKey).toBe("sk-ant-with-quotes");
+  });
+
+  it("strips surrounding single quotes from value", () => {
+    process.env[ENV_KEY] = "'sk-ant-with-single-quotes'";
+    const cred = new EnvAnthropicCredentialLoader().load();
+    expect(cred.apiKey).toBe("sk-ant-with-single-quotes");
+  });
+
+  it("strips quotes from CLAUDE_API_KEY alias too", () => {
+    process.env[ALT_KEY] = '"sk-ant-alias-quoted"';
+    const cred = new EnvAnthropicCredentialLoader().load();
+    expect(cred.apiKey).toBe("sk-ant-alias-quoted");
   });
 });

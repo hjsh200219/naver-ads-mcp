@@ -31,13 +31,32 @@ function freezeAnthropicCred(apiKey: string): AnthropicCredentials {
 }
 
 export class EnvAnthropicCredentialLoader implements IAnthropicCredentialLoader {
-  private static readonly KEY = "ANTHROPIC_API_KEY";
+  private static readonly PRIMARY_KEY = "ANTHROPIC_API_KEY";
+  // CLAUDE_API_KEY is accepted as an alias because some users adopt the
+  // Claude-branded name. Primary wins when both are set.
+  private static readonly ALIAS_KEY = "CLAUDE_API_KEY";
 
   load(): AnthropicCredentials {
-    const raw = process.env[EnvAnthropicCredentialLoader.KEY];
+    const primary = process.env[EnvAnthropicCredentialLoader.PRIMARY_KEY];
+    const alias = process.env[EnvAnthropicCredentialLoader.ALIAS_KEY];
+    const raw =
+      primary !== undefined && primary.trim() !== "" ? primary : alias;
     if (raw === undefined || raw.trim() === "") {
       throw new MissingAnthropicKeyError();
     }
-    return freezeAnthropicCred(raw.trim());
+    return freezeAnthropicCred(stripQuotes(raw.trim()));
   }
+}
+
+// Some users wrap .env values in quotes ('"sk-..."'). dotenv preserves them
+// verbatim. Strip matched surrounding pairs only; don't touch quotes inside
+// the actual key body.
+function stripQuotes(s: string): string {
+  if (s.length < 2) return s;
+  const first = s[0];
+  const last = s[s.length - 1];
+  if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
+    return s.slice(1, -1);
+  }
+  return s;
 }
