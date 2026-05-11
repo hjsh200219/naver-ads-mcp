@@ -1,32 +1,33 @@
 ---
-created: 2026-05-11T17:55:00+09:00
+created: 2026-05-11T18:10:00+09:00
 project: naver-ads-mcp
-summary: Phase 3.5 데일리 리포트 자동화 완료 (US-017~020) + v1.6 baseline 복구 (src/output/* gitignore 함정 수정), 344 → 388 tests, origin/main 푸시
+summary: E2E PRD 검증 (US-001~020) + US-020 history drift 수정 (매 호출 1건 보장) + README onboarding 가이드 보강, 389 tests, f0442ed origin/main 푸시
 ---
 
 ## Session Digest
 
-Phase 3.5 데일리 리포트 자동화를 한 세션에 완료했습니다. US-017(threshold engine), US-018(client-mappings daily_thresholds), US-019(aggregateDailyPayload), US-020(prepare_daily_dashboard MCP tool) 네 스토리를 TDD로 순차 통과시켰습니다. 세션 초반 v1.6 baseline이 깨져 있어 원인을 추적한 결과 `.gitignore`의 `output/` 패턴이 `src/output/`까지 무시해 weekly-html, weekly-xlsx, file-writer 세 파일이 모두 소실된 것을 확인, anchored 패턴 `/output/`으로 교정하고 파일을 복구했습니다. advisor 검토에서 history JSONL resource regex가 daily_prepared 상태를 반영하지 못하는 defect를 지적받아 즉시 수정했습니다. deslop pass + regression rerun 후 커밋 e69d6e5 origin/main 푸시 완료.
+전체 PRD US-001~020을 /tmp/e2e-run.mjs 한 스크립트로 end-to-end 검증했습니다. Naver API와 Anthropic을 모킹한 상태로 generate_report, prepare_weekly_dashboard, prepare_daily_dashboard 세 도구를 연속 호출해 산출 xlsx의 시트 가시성·구조까지 확인했습니다. PRD↔구현 drift 1건 발견: US-020 acceptance는 "광고주당 history 1건"인데 실제 코드는 violations>0일 때만 기록하고 있어 무위반 일자에 누락. `src/mcp/server.ts:634`의 `if` 가드를 제거하고 regression 테스트 1건 추가해 388→389 tests. README에는 §1 SA API 발급 절차, §3 client 키 신규 온보딩/회전/오프보딩 워크플로우를 보강해 운영자 관점 갭을 메웠습니다. 커밋 f0442ed origin/main 푸시 완료.
 
 ## Progress
 
-- ✅ Plan §Phase 3.5 stories US-017 (threshold engine), US-018 (client-mappings daily_thresholds), US-019 (aggregateDailyPayload), US-020 (prepare_daily_dashboard MCP tool) — 모두 passes:true in `.omc/prd.json`
-- ✅ v1.6 baseline 복구: src/output/{weekly-html,weekly-xlsx,file-writer}.ts (gitignore `output/` → `/output/`)
-- ✅ History schema dual-mode (week field accepts YYYY-Www or YYYY-MM-DD; status enum +daily_prepared; violation_count optional)
-- ✅ MCP surface: 6 tools → 7 (prepare_daily_dashboard 추가)
-- ✅ 365 → 388 tests passing. typecheck 0, lint 0, build clean
-- ✅ Architect APPROVED_WITH_NOTES → defect fix (history JSONL resource regex)
-- ✅ deslop pass + regression rerun
-- ✅ Push 완료: 커밋 e69d6e5 → origin/main
-- ⏳ 6 광고주별 실제 daily_thresholds 값 (현재 default 동작)
-- ⏳ buildDailyRaw live fetch (stub; dailyPayloadProvider 주입으로만 검증)
+- ✅ E2E PRD 검증 (US-001~020) via /tmp/e2e-run.mjs: 3 tools 연속 호출, 산출 xlsx 시트 가시성 확인
+- ✅ US-020 drift 수정: prepare_daily_dashboard가 위반 유무와 무관하게 매핑된 모든 client에 history 1건 작성
+- ✅ Regression test 1건 추가 (no-violation 일자도 history 기록되는지)
+- ✅ README §1 SA API 신청 가이드 (ads.naver.com 발급, MASTER 권한, SECRET_KEY 1회 노출)
+- ✅ README §3 Client 키 운영 가이드 (온보딩 5단계, 회전, 오프보딩, 다중 광고주 주의)
+- ✅ 388 → 389 tests passing, typecheck 0, build clean
+- ✅ 푸시 완료: f0442ed → origin/main
+- ⏳ 6 광고주별 daily_thresholds 튜닝 (실 데이터로 ROAS/CPC/노출 임계값 조정 후 per-client override)
+- ⏳ buildDailyRaw live fetch 구현 (현재 stub; production 호출 시 throw)
+- ⏳ AE 1명 파일럿 (Phase 4): 비셰프/택스아이 실데이터로 주간+데일리 1회 prepare 흐름 검증
 
 ## Next Steps
 
 1. **6 광고주별 daily_thresholds 튜닝**: 실 데이터로 ROAS/CPC/노출 임계값 조정 후 client-mappings.json에 per-client override 추가
-2. **buildDailyRaw live fetch 구현**: 현재 stub. Phase 0 Naver API 결과를 daily slice로 가공하도록 수정해야 운영에서 prepare_daily_dashboard 실 호출 가능
+2. **buildDailyRaw live fetch 구현**: Phase 0 Naver API 결과를 daily slice로 가공해 production에서 prepare_daily_dashboard 실호출 가능하도록
 3. **AE 1명 파일럿 (Phase 4)**: 비셰프/택스아이 실데이터로 주간+데일리 1회 prepare 흐름 검증
-4. **Phase 4 진입 결정**: AE 만족도 측정, hallucination 99% 게이트, 보안 runbook
+4. **history 보관 정책 결정**: prepare_daily_dashboard가 매 호출 1건 작성으로 변경됨에 따라 광고주당 연 365 라인 누적. archive cron 또는 retention 정책 필요 시 사용자 결정
+5. **Phase 4 진입 결정**: AE 만족도 측정, hallucination 99% 게이트, 보안 runbook
 
 ## Blockers
 
@@ -39,12 +40,9 @@ Phase 3.5 데일리 리포트 자동화를 한 세션에 완료했습니다. US-
 - **prepare_daily_dashboard는 dailyPayloadProvider 주입 필수**: live fetch 미구현이므로 production 호출 시 즉시 throw — 테스트는 통과해도 운영 검증 미완
 - **per-client daily_thresholds override 머지 패턴**: resolveThresholds()는 partial override 머지, missing key는 default fallback. 새 임계값 필드 추가 시 resolveThresholds도 함께 갱신 필요
 - **history resource regex**: `/^(\d{4}-W\d{2}|\d{4}-\d{2}-\d{2})\.jsonl$/` — 새 status 추가 시 regex/테스트 모두 점검
+- **신규 — prepare_daily_dashboard history 볼륨**: 이제 모든 매핑된 client에 대해 매 호출 history 1건씩 작성 (6 광고주 × 365일 = 연 2,190 라인). 보관 정책 필요 시 사용자가 archive cron 결정
 
 ## Files Touched
 
-- 신규: src/analyzer/thresholds.ts, src/parser/aggregate-daily.ts, src/output/{weekly-html,weekly-xlsx,file-writer}.ts
-- 수정: src/config/client-mappings.ts (daily_thresholds optional), src/runtime/history.ts (week dual-format + daily_prepared status), src/mcp/server.ts (prepare_daily_dashboard + DailyPayloadProvider + history regex)
-- 테스트 신규: tests/{thresholds,aggregate-daily,prepare-daily-dashboard}.test.ts
-- 테스트 수정: tests/{client-mappings,history,mcp}.test.ts
-- 설정: .gitignore (output/ → /output/), .omc/prd.json (US-017~020)
-- 푸시: e69d6e5 → origin/main (+1836/-10)
+- 수정: src/mcp/server.ts (line 634 if 가드 제거), tests/prepare-daily-dashboard.test.ts (신규 테스트 1건), README.md
+- 푸시: f0442ed → origin/main
