@@ -20,14 +20,29 @@
 
 ## 사전 준비
 
-### 1. API 키 발급
+### 1. SA(검색광고) API 신청 — 광고주별 1회
 
-1. [네이버 검색광고 센터](https://manage.searchad.naver.com) 로그인
-2. 도구 → API 사용관리 → API 사용자 생성
-3. 다음 3개 값 발급:
-   - `CUSTOMER_ID`
-   - `ACCESS_LICENSE`
-   - `SECRET_KEY`
+네이버 검색광고 API는 **광고주 계정 단위로 별도 발급**됩니다. helloMAX처럼 여러 광고주를 운영하는 경우, 각 광고주 계정에서 개별 신청해야 합니다.
+
+#### 1-1. 권한 확인
+
+- API 신청 권한: 해당 광고주 계정의 **마스터(MASTER)** 또는 **슈퍼유저(SUPER_USER)** 권한 사용자만 가능
+- 운영자(USER)/뷰어(VIEWER) 권한으로는 발급 불가 → 광고주에게 마스터 위임 또는 직접 발급 요청 필요
+
+#### 1-2. 발급 절차
+
+1. [네이버 검색광고 센터](https://ads.naver.com) 로그인 (해당 광고주 계정으로)
+2. 우측 상단 사용자 메뉴 → **도구 > API 사용관리** 진입
+3. **신규 등록** 버튼 클릭
+   - 사용자 이름: 식별 가능한 라벨 (예: `helloMAX-mcp`)
+   - 권한 범위: 모든 API 권한 ON (자동화 보고서·전환 데이터·메타데이터 조회용)
+4. 생성 직후 화면에 표시되는 3개 값 즉시 보관:
+   - `CUSTOMER_ID` — 광고주 ID (숫자, 영구 고정)
+   - `ACCESS_LICENSE` — 액세스 라이선스
+   - `SECRET_KEY` — **이 화면을 벗어나면 다시 볼 수 없음.** 별도 secret manager(1Password / Bitwarden / `accounts.json` 등)에 즉시 저장
+5. 광고주 코드명(`client_id`) 매핑은 [`src/config/client-mappings.json`](src/config/client-mappings.json)에 기록
+
+> ⚠️ `SECRET_KEY`를 분실한 경우 같은 사용자 항목에서 **키 재발급**으로 회전(아래 3절 참조). 기존 키는 폐기됩니다.
 
 ### 2. 자격증명 등록
 
@@ -39,15 +54,15 @@
 
 ```json
 {
-  "default": "primary",
+  "default": "client-a",
   "accounts": {
-    "primary": {
-      "customerId": "...",
+    "client-a": {
+      "customerId": "1234567",
       "accessLicense": "...",
       "secretKey": "..."
     },
-    "secondary": {
-      "customerId": "...",
+    "client-b": {
+      "customerId": "7654321",
       "accessLicense": "...",
       "secretKey": "..."
     }
@@ -57,8 +72,9 @@
 
 - `chmod 600 accounts.json` 권장 (다른 사용자 읽기 차단)
 - 위치 변경: `NAVER_ADS_ACCOUNTS_PATH=/secure/path/accounts.json` 환경변수
-- 계정 식별자(`primary` 등)는 `^[a-zA-Z0-9_-]{1,64}$` 형식만 허용 — `naver-ads://accounts` 리소스 조회 시 식별자가 LLM transcript에 그대로 노출되므로, 노출돼도 무방한 라벨 사용 (광고주 코드명 또는 `acc1`/`client-001` 같은 opaque label)
+- 계정 식별자(`client-a` 등)는 `^[a-zA-Z0-9_-]{1,64}$` 형식만 허용 — `naver-ads://accounts` 리소스 조회 시 식별자가 LLM transcript에 그대로 노출되므로, 노출돼도 무방한 라벨 사용 (광고주 코드명 또는 `acc1`/`client-001` 같은 opaque label)
 - `accounts.json`은 `.gitignore`에 등록되어 있음 (절대 커밋 금지)
+- `accounts.json`의 `client-a` 식별자는 [`src/config/client-mappings.json`](src/config/client-mappings.json)의 `client_id`와 **동일하게 유지** (조회 일관성)
 
 #### B. `.env` 단일 광고주 — 레거시 fallback
 
@@ -72,12 +88,38 @@ NAVER_ADS_SECRET_KEY=your-secret-key
 
 ⚠️ `.env` 파일은 절대 커밋하지 않습니다. `.gitignore`에 이미 포함되어 있습니다.
 
-### 3. 키 회전 (Key Rotation) 절차
+### 3. Client별 키 운영 가이드
 
-- 키 유출이 의심되거나 발급자 퇴사 시 즉시 회전
-- 절차: 네이버 검색광고 센터 → 도구 → API 사용관리 → 기존 키 폐기 → 새 키 발급 → `accounts.json` 또는 `.env` 갱신
+#### 3-1. 광고주 신규 온보딩 워크플로우
+
+| 단계 | 담당   | 작업                                                                           |
+| ---- | ------ | ------------------------------------------------------------------------------ |
+| 1    | AE     | 광고주에게 마스터 권한자에게 SA API 발급 요청 (계정명·발급자 이름 지정)        |
+| 2    | 광고주 | `ads.naver.com` → 도구 → API 사용관리 → 신규 등록 (위 1-2 절차)                |
+| 3    | AE     | 발급 즉시 3개 값 secret manager에 저장 (이메일/메신저 전송 금지)               |
+| 4    | AE     | `accounts.json`에 `client-X` 항목 추가 + `client-mappings.json`에 매핑 행 추가 |
+| 5    | AE     | MCP 서버 재시작 → `validate_credentials({account: "client-X"})`로 검증         |
+
+#### 3-2. 키 회전 (Key Rotation)
+
+- **회전 트리거**: 키 유출 의심, 발급자 퇴사, 광고주 보안 정책 (분기/반기), `validate_credentials` 401 응답
+- 절차: 네이버 검색광고 센터 → 도구 → API 사용관리 → 해당 사용자 항목 → **키 재발급** → 신규 `ACCESS_LICENSE`/`SECRET_KEY` 즉시 교체
 - 회전 후 **MCP 서버 재시작 필수** (자격증명은 첫 도구 호출 시 한 번만 로드 — 핫리로드 없음)
 - 재시작 후 `validate_credentials({account: "..."})` 도구로 검증 권장
+- `CUSTOMER_ID`는 영구 고정 — 회전 대상 아님
+
+#### 3-3. 광고주 오프보딩 (계약 종료)
+
+1. `client-mappings.json`에서 `automation_enabled: false` 설정 → 데일리/위클리 잡 자동 제외
+2. 네이버 검색광고 센터에서 해당 사용자 항목 **삭제** (광고주 측 마스터가 수행)
+3. `accounts.json`에서 해당 엔트리 제거 → MCP 서버 재시작
+4. `~/.naver-ads-mcp/reports/{client}/` 와 `~/.naver-ads-mcp/history/{client}/` 보관 정책에 따라 아카이브/삭제
+
+#### 3-4. 다중 광고주 운영 시 주의사항
+
+- 광고주별 키는 **계정 격리**됨 — `client-a`의 키로 `client-b` 데이터 조회 불가 (HTTP 403)
+- 도구 호출 시 `account` 인자를 항상 명시: `generate_report({account: "client-a", ...})`. 미지정 시 `default` 광고주로 폴백되어 의도치 않은 데이터 혼선 가능
+- `naver-ads://accounts` 리소스로 등록된 광고주 목록을 조회할 수 있으나 시크릿은 반환되지 않음
 
 ## 설치
 

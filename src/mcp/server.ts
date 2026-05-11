@@ -631,31 +631,29 @@ export function createServer(deps: ServerDeps = {}): {
       for (const w of payload.data_warnings) {
         allWarnings.push(`${m.client_id}: ${w}`);
       }
-      if (violations.length > 0) {
-        const payload_hash = crypto
-          .createHash("sha256")
-          .update(
-            JSON.stringify({
-              client: m.client_id,
-              date: args.date,
-              violations,
-            }),
-          )
-          .digest("hex");
-        await appendHistory({
-          baseDir: HISTORY_BASE_DIR,
-          entry: {
-            week: args.date,
+      const payload_hash = crypto
+        .createHash("sha256")
+        .update(
+          JSON.stringify({
             client: m.client_id,
-            payload_hash,
-            prepared_at: new Date().toISOString(),
-            html_path: "",
-            xlsx_path: "",
-            status: "daily_prepared",
-            violation_count: violations.length,
-          },
-        });
-      }
+            date: args.date,
+            violations,
+          }),
+        )
+        .digest("hex");
+      await appendHistory({
+        baseDir: HISTORY_BASE_DIR,
+        entry: {
+          week: args.date,
+          client: m.client_id,
+          payload_hash,
+          prepared_at: new Date().toISOString(),
+          html_path: "",
+          xlsx_path: "",
+          status: "daily_prepared",
+          violation_count: violations.length,
+        },
+      });
     }
 
     summary.sort((a, b) => b.violation_count - a.violation_count);

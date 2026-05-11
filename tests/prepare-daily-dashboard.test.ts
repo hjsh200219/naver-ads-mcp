@@ -150,6 +150,29 @@ describe("US-020 prepare_daily_dashboard MCP tool", () => {
     expect(consoleSpy).not.toHaveBeenCalled();
   });
 
+  it("appends one history entry per client even when violations=0 (PRD US-020 AC)", async () => {
+    const { tools } = createServer({
+      client: stubClient,
+      clientMappings: MAPPINGS,
+      historyBaseDir: workDir,
+      dailyPayloadProvider: async ({ client }: { client: string }) =>
+        cleanPayload(client),
+    });
+    await tools.prepare_daily_dashboard({ date: "2026-05-08" });
+
+    const { readHistory } = await import("../src/runtime/history.js");
+    for (const m of MAPPINGS.mappings) {
+      const entries = await readHistory({
+        baseDir: workDir,
+        client: m.client_id,
+        week: "2026-05-08",
+      });
+      expect(entries).toHaveLength(1);
+      expect(entries[0].status).toBe("daily_prepared");
+      expect(entries[0].violation_count).toBe(0);
+    }
+  });
+
   it("single-client breach: emits stdout warn + appends history with daily_prepared status", async () => {
     const { tools } = createServer({
       client: stubClient,
