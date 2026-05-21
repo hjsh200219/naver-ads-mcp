@@ -39,14 +39,14 @@ TypeScript MCP server that automates Naver Search Ad data collection and generat
 - **L3 API**: `src/api/{client,signer,stat-reports,metadata}.ts`
 - **L2 Service**: `src/{raw,pivot,excel,util,analyzer,parser}/`
 - **L1 Runtime**: `src/{mcp/server,cli,index}.ts`
-  - MCP surface (v1.6 + Phase 3.5): **7 tools** (`validate_credentials`, `fetch_raw_data`, `generate_report`, `prepare_weekly_payload`, `generate_weekly_analysis_prompt`, `finalize_weekly_dashboard`, `prepare_daily_dashboard`) + **4 resources** (`naver-ads://report-types`, `naver-ads://accounts`, `naver-ads://client-mappings`, `naver-ads://history/{client}`). 주간 보고서 파이프라인은 3-tool 구조: (1) `prepare_weekly_payload` helloMAX form xlsx → PrecomputedPayload + payload_summary_md, (2) `generate_weekly_analysis_prompt` payload → system/user prompt + expected schema (호스트 LLM이 직접 분석), (3) `finalize_weekly_dashboard` payload + ai_analysis → AE preview artifact + 광고주 발송용 html/xlsx + history JSONL. `prepare_daily_dashboard`는 일별 성과 자동화 (Phase 3.5). 발송은 AE가 메일 클라이언트에서 직접 첨부 (외부 Email MCP 의존 없음). MCP 서버는 Anthropic SDK에 의존하지 않습니다 — 분석은 호출 측 Claude(host)가 수행합니다.
+  - MCP surface (v1.6 + Phase 3.5): **8 tools** (`validate_credentials`, `fetch_raw_data`, `generate_report`, `register_client`, `prepare_weekly_payload`, `generate_weekly_analysis_prompt`, `finalize_weekly_dashboard`, `prepare_daily_dashboard`) + **4 resources** (`naver-ads://report-types`, `naver-ads://accounts`, `naver-ads://client-mappings`, `naver-ads://history/{client}`). `register_client`는 client-mappings.json upsert (accounts.json에서 customer_id 자동 추출, atomic write + advisory lock). `fetch_raw_data`는 1MB 응답 한도 대응 옵션 제공 (`outputPath` → 파일 저장 후 path+count 반환, `summarize` → row 생략, `limit` → row 캡, 자동 가드 >900KB hint). 주간 보고서 파이프라인은 3-tool 구조: (1) `prepare_weekly_payload` helloMAX form xlsx → PrecomputedPayload + payload_summary_md, (2) `generate_weekly_analysis_prompt` payload → system/user prompt + expected schema (호스트 LLM이 직접 분석), (3) `finalize_weekly_dashboard` payload + ai_analysis → AE preview artifact + 광고주 발송용 html/xlsx + history JSONL. `prepare_daily_dashboard`는 일별 성과 자동화 (Phase 3.5). 발송은 AE가 메일 클라이언트에서 직접 첨부 (외부 Email MCP 의존 없음). MCP 서버는 Anthropic SDK에 의존하지 않습니다 — 분석은 호출 측 Claude(host)가 수행합니다.
 
 ## Health Stack
 
 | 명령                | 용도                       |
 | ------------------- | -------------------------- |
 | `npm run typecheck` | TypeScript 검증 (0 errors) |
-| `npm test`          | vitest run (388 passing)   |
+| `npm test`          | vitest run (394 passing)   |
 | `npm run build`     | tsc → dist/                |
 
 ## Critical Constraints

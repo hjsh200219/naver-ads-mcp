@@ -1,86 +1,54 @@
 ---
-created: 2026-05-21T22:00:00+09:00
+created: 2026-05-21T20:30:00+09:00
 project: naver-ads-mcp
-summary: 1 commit pushed (d501a87) — parseTsv 헤더 corruption 8주 silent bug 수정, /stats API cross-check로 5/10 reportTp verified, 미검증 5개는 UnsupportedReportTypeError throw, prepare_daily_dashboard live wiring 완료. 실측 generate_report 1037 valid rows, prepare_daily_dashboard cpc_mom 179% breach 탐지.
+summary: commit 42bce5b — register_client tool 신규 + fetch_raw_data 1MB-safe 옵션 (outputPath/summarize/limit). client-mappings.json atomic write + customer_id auto-fill. tools 7→8, 394/394 pass.
 ---
 
 ## Session Digest
 
-1개 commit (origin/main push 완료, 643136a..d501a87):
+다른 Claude Desktop 세션에서 "hellomax 미등록" 진단 오류 → 실제 원인은 accounts.json은 OK, **client-mappings.json에 hellomax entry 없음**. weekly/daily tool은 두 store 모두 필요한 구조였음.
 
-1. `fix(api/parser)`: parseTsv 헤더 가정 제거 + reportTp별 index-based column 매핑 + prepare_daily_dashboard live wiring (d501a87, +1113 / -163 lines)
+해결: `register_client` MCP tool 신규. accounts.json에서 `customer_id` 자동 추출 + atomic upsert. 별도로 Desktop에서 `fetch_raw_data` 1MB 초과 에러 보고 → `outputPath` / `summarize` / `limit` 옵션 + 자동 가드 추가.
 
 ## Progress
 
-### 완료
-
-- ✅ **parseTsv 헤더 corruption 수정** — 8주간 silent bug. stat-report v2 응답은 header 없는 raw TSV인데 첫 줄을 header로 가정해 모든 RAW 시트 'unknown'/NaN로 채워지던 문제 해결. `parseTsv(text, reportTp)` 시그니처로 변경, reportTp별 index-based column map 적용.
-- ✅ **/stats API cross-check 검증** — AD / AD_DETAIL / AD_CONVERSION / AD_CONVERSION_DETAIL / EXPKEYWORD 5개 reportTp column 순서 실측 검증 (`scripts/verify-stat-columns.mjs`).
-- ✅ **UnsupportedReportTypeError** — 미검증 5개 reportTp (SHOPPINGKEYWORD_DETAIL, SHOPPINGKEYWORD_CONVERSION_DETAIL, SHOPPINGBRANDPRODUCT, SHOPPINGBRANDPRODUCT_CONVERSION, BRND_CONTRACT)는 명시적 throw. fabrication 방지.
-- ✅ **prepare_daily_dashboard live wiring** — `defaultLiveDailyProvider` 신설. client_id → customer_id (mappings) → account name (accountStore) 매핑 후 AD + AD_CONVERSION fetch → buildDailyRaw → aggregateDailyPayload. 매핑 없는 client는 empty payload + warning (다른 client 계속 처리).
-- ✅ **avgRnk 자동 파생**: avgRnkWeighted ÷ impCnt (impCnt=0 → 0)
-- ✅ **normalizeDevice**: stat-report v2 단일문자 "P"/"M" 정규화 추가
-- ✅ **classifyConvTp**: 문자열 convTpName "lead"/"purchase"/"signup" 매핑 추가
-- ✅ **findAccountForClient**: getStore() 사용으로 env-only mode 지원
-- ✅ vitest 373/373 pass, typecheck 0, lint/build clean
-- ✅ **실측 검증**:
-  - live `generate_report` (hellomax, 2026-05-12): 일별RAW 1037 valid rows, 0 'unknown'
-  - live `prepare_daily_dashboard`: cpc_mom 179% breach 탐지, history JSONL 기록 OK
-- ✅ 4 신규 verification/live 스크립트 (scripts/)
-- ✅ 메모리 갱신: `stat-report-column-spec.md` 신규 / `parsetsv-header-bug.md` 삭제
+- ✅ `src/runtime/client-mappings-writer.ts` 신규 — atomic write + advisory lock + schema validate
+- ✅ `register_client` MCP tool — customer_id auto-fill, overwrite 지원, 캐시 invalidate
+- ✅ `fetch_raw_data` 옵션: `outputPath` / `summarize` / `limit` + >900KB 자동 hint
+- ✅ `prepare_weekly_payload` warnings 필드 — 미등록 client_id 안내
+- ✅ `finalize_weekly_dashboard` data_warnings에 동일 안내 merge
+- ✅ 신규 테스트 18개 (writer 9 + register-client 9 + fetch_raw_data 3)
+- ✅ typecheck 0, vitest 394/394, build OK
+- ✅ commit 42bce5b push (origin/main)
+- ✅ AGENTS.md: tool 7→8 + test 388→394 갱신
+- ✅ Memory 3건 신규 저장
 
 ## Next Steps
 
-1. **미검증 reportTp 5개 verify** — shopping advertiser 계정 sample 확보 필요:
-   - SHOPPINGKEYWORD_DETAIL, SHOPPINGKEYWORD_CONVERSION_DETAIL
-   - SHOPPINGBRANDPRODUCT, SHOPPINGBRANDPRODUCT_CONVERSION
-   - BRND_CONTRACT
-   - 검증 후 UnsupportedReportTypeError 해제 + column map 추가
-2. **client-mappings.json 채우기** — 전체 customer_id="TBD" 상태. ops가 production daily dashboard 운영 전에 실제 customer_id 입력해야 hellomax 외 client 동작.
-3. **EXPKEYWORD col8 검증** — `avgRnkWeighted` 추정. impCnt mismatch는 Naver issue #1080 확인됨. shopping reportTp verify 작업 시 함께 재확인.
+1. **hellomax 실제 등록** — Claude Desktop에서 `register_client({client_id:"hellomax", recipients:["..."]})` 호출 (recipients = AE/광고주 메일, 별도 확인 필요)
+2. **chmod 600 accounts.json** — 현재 644 (MCP 서버 매번 warning). 변경 후 서버 재시작
+3. **placeholder client-1~6 정리** — TBD entry 제거 여부 결정 (현재 6건 자리만 차지)
+4. **Claude Desktop e2e 검증** — register_client 호출 → prepare_weekly_payload → finalize → 발송 흐름 통과 확인
+5. **fetch_raw_data 활용** — 큰 raw fetch는 `outputPath:"/tmp/<client>-<reportTp>-<week>.json"` 패턴 권장
 
 ## Blockers
 
-- **Shopping advertiser sample 부재** — 미검증 5개 reportTp는 hellomax(검색광고 only) 계정으로 검증 불가. 쇼핑광고 운영하는 client 계정 접근 필요.
-- **client-mappings.json customer_id 미입력** — hellomax 외 client는 prepare_daily_dashboard가 empty payload + warning 반환. production 운영 전 ops 작업 필요.
+- 없음
 
 ## Watch Out
 
-- **silent corruption 해결됨** — d501a87 이전 빌드는 RAW 시트 무효. 이전 보고서 재생성 권장.
-- **5개 미검증 reportTp는 throw** — generate_report에서 해당 reportTp 호출 시 UnsupportedReportTypeError. 임시 우회 필요 시 fabrication 위험 인지 후 진행.
-- **prepare_daily_dashboard live mode** — accountStore에 client_id mapping 없으면 empty payload(warning). 에러 throw 아니라서 호출측에서 payload 비어있는지 검사 필요.
-- **avgRnk 파생값 의미** — `avgRnkWeighted ÷ impCnt`로 자동 계산. impCnt=0인 row는 0 (NaN 방지).
-- generate_report outputPath는 macOS 절대경로 (`/Users/...`). `/home/claude/`는 ENOENT.
-- accounts.json 권한 600 유지.
+- **client-mappings 캐시**: register_client는 등록 직후 `_mappingsCache = undefined` 처리하나, 별도 MCP 서버 인스턴스(예: 다른 Desktop 창)가 떠 있으면 그쪽은 stale. 서버 재시작 권장
+- **자동 customer_id 자동 추출**: `account` 명시 안 하면 `client_id` → default account 순서로 매칭. 의도 다르면 `account:"<name>"` 명시
+- **recipients PII**: accounts.json에 없음, 자동 채울 수 없음. register_client 호출 시 사용자가 명시 필수
+- **fetch_raw_data 자동 가드**: hint 반환 시 실제 데이터는 응답에 없음 → 재호출 필요. tool description에 명시되어 있음
+- **proper-lockfile**: 동시 register_client는 직렬화. high-frequency 호출 시 timeout (현재는 AE 수동이라 무관)
 
 ## Files Touched
 
-### Source 수정
-
-- src/api/stat-reports.ts (parseTsv reportTp 매핑 + UnsupportedReportTypeError + helper들, +182 lines)
-- src/mcp/server.ts (defaultLiveDailyProvider + findAccountForClient getStore() 전환, +153 lines)
-- src/raw/builder.ts (parseTsv 시그니처 변경 대응)
-
-### Tests
-
-- tests/stat-reports.test.ts (reportTp별 column map + UnsupportedReportTypeError 케이스, +139 lines)
-- tests/e2e.test.ts (parseTsv 시그니처 + live raw 형식)
-- tests/e2e-reference-parity.test.ts (parseTsv 시그니처)
-- tests/mcp.test.ts (defaultLiveDailyProvider mock)
-
-### Scripts (신규)
-
-- scripts/sample-stat-reports.mjs (reportTp별 raw TSV 샘플 수집)
-- scripts/verify-stat-columns.mjs (/stats API cross-check)
-- scripts/live-generate-report.mjs (live generate_report 검증)
-- scripts/live-prepare-daily.mjs (live prepare_daily_dashboard 검증)
-
-### Memory
-
-- .claude-project/memory/stat-report-column-spec.md (신규, 5/10 verified + 미검증 5개 표시)
-- .claude-project/memory/parsetsv-header-bug.md (삭제, d501a87로 해결)
-- .claude-project/memory/MEMORY.md (인덱스 갱신)
-
-### Misc
-
-- .gitignore (live 검증 산출물 제외)
+- `src/runtime/client-mappings-writer.ts` (신규, 92 lines)
+- `src/mcp/server.ts` (+235 lines: schema/tool def/handler/dispatch/export + fetch_raw_data 옵션 + weekly warnings)
+- `tests/client-mappings-writer.test.ts` (신규, 157 lines)
+- `tests/register-client.test.ts` (신규, 206 lines)
+- `tests/mcp.test.ts` (+104 lines: tool count + fetch_raw_data 3 cases)
+- `AGENTS.md` (tool 7→8 + test 388→394)
+- `.claude-project/memory/{register-client-tool-pattern,client-mappings-atomic-write,mcp-1mb-response-limit}.md` (신규 3건)
