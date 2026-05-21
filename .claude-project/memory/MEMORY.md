@@ -22,6 +22,7 @@
 - [daily-history-per-client-always.md](daily-history-per-client-always.md) — prepare_daily_dashboard는 violation_count 무관 매핑된 광고주당 1건 history 기록 (audit trail 우선, commit f0442ed 이후)
 - [stat-reports-signed-download.md](stat-reports-signed-download.md) — stat-report 다운로드 URL은 HMAC 서명 필수 + v2 응답은 plain TSV (비압축). path-only 서명, gzip magic-byte 조건부 분기
 - [stat-report-column-spec.md](stat-report-column-spec.md) — stat-report v2 reportTp별 column 순서 (5/10 검증: AD, AD_DETAIL, AD_CONVERSION, AD_CONVERSION_DETAIL, EXPKEYWORD). /stats cross-check 완료
+- [account-store-getstore-not-snapshot.md](account-store-getstore-not-snapshot.md) — 자격증명 조회는 getStore() lazy resolve 필수. deps.accountStore 직접 캡처는 env-only mode 침묵 실패
 - [weekly-dashboard-3tool-flow.md](weekly-dashboard-3tool-flow.md) — prepare_weekly_dashboard → 3-tool 분리 (prepare_weekly_payload + generate_weekly_analysis_prompt + finalize_weekly_dashboard). Anthropic 의존성 제거, host Claude가 분석 담당
 
 ## Reference
