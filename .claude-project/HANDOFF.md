@@ -1,84 +1,44 @@
 ---
-created: 2026-05-21T21:40:00+09:00
+created: 2026-05-21T22:00:00+09:00
 project: naver-ads-mcp
-summary: Session digest — no changes. Status checkpoint. Tests 354/354 pass, types clean, all prior work stable.
+summary: commit ab5b3ae — weekly/daily live API path가 미래 statDt에 HTTP 400으로 전체 fail. statDt > today skip + NaverAdsApiError 4xx continue로 graceful degrade. dry-run hellomax 2026-W21 실데이터 성공.
 ---
 
 ## Session Digest
 
-**Explorer** session — loaded prior HANDOFF (commit df096e5) + memory index. No new changes committed. Verified health:
+직전 commit `a2fa57a`로 prepare_weekly_payload live API path 추가. Desktop에서 호출하니 "Client error (400)" 전체 fail. 원인: Naver API가 미래 일자(`statDt > today`)에 HTTP 400 reject. ISO week `[Mon, Sun]` 7일치 fetch는 진행 중인 주에서 5/22~5/24 등 미래일자 포함 → 첫 throw에서 abort.
 
-- ✅ 354 tests passing (28 test files)
-- ✅ TypeScript strict mode clean (0 errors)
-- ✅ accounts.json at 600 perms (credential safe)
-- ✅ git working tree clean
-
-Prior session (a2fa57a) added live API path for prepare_weekly_payload + ./reports default + consistent weekly file naming. Ready for Desktop e2e validation.
+해결 (commit `ab5b3ae`): `fetchByDay`(weekly) + `fetchOne`(daily) 양쪽에서 (1) `statDt > today` skip (2) `NaverAdsApiError 4xx`도 `StatReportFailedError`처럼 continue. 5xx만 throw 유지.
 
 ## Progress
 
-- ✅ Prior commits stable (a2fa57a live path + naming, df096e5 client-mappings purge)
-- ✅ Health check: all systems green
-- ✅ accounts.json: 600 perms confirmed (no warning)
-- ✅ Codebase: 42 src files, 28 test files, no dead code left from client-mappings cleanup
+- ✅ src/mcp/server.ts fetchByDay: 미래 statDt skip + 4xx continue
+- ✅ src/mcp/server.ts fetchOne: 동일 패치
+- ✅ dry-run prepare_weekly_payload({client:"hellomax", week:"2026-W21"}) 실데이터 성공 (kpi_current.impressions=12794, cost=100428)
+- ✅ vitest 354/354 pass, typecheck 0 errors
+- ✅ commit ab5b3ae push (origin/main)
+- ✅ Memory: naver-api-quirks.md에 "미래 statDt = 400" 섹션 추가
 
 ## Next Steps
 
-1. **Desktop e2e validation** (priority 1):
-   - Launch MCP server (fresh process, new tool/resource list)
-   - Call `prepare_weekly_payload({client:"hellomax", week:"2026-W21"})` → verify returns PrecomputedPayload + payload_summary_md
-   - Call `generate_weekly_analysis_prompt({payload:...})` → verify returns system/user prompts + expected schema
-   - Call `finalize_weekly_dashboard({payload:..., ai_analysis:{...}})` → verify returns html/xlsx artifacts + history JSONL append
-   - Confirm reports/ directory created (default ./reports/)
-
-2. **Conversion classification accuracy** (priority 2):
-   - Verify `classifyConvTp` conversion code mapping (구매완료/회원가입/신청완료/기타전환) matches AE manual categories in hellomax template
-   - If drift found, check live Naver API response structure (stat-reports-signed-download.md notes v2 plain TSV, no gzip)
-
-3. **Production readiness** (priority 3):
-   - reports/ rotation/archive policy (manual, AE-driven, or auto-cleanup?)
-   - Placeholder accounts (client-1 through client-6 entries) — if still in accounts.json, evaluate for removal
-   - Email MCP integration — confirm AE understands Desktop Claude will generate artifact, not send email directly
+1. **Claude Desktop 완전 종료 + 재실행** — MCP 서버 재spawn 필요 (tsx 모듈 캐시 invalidate). 현재 Desktop은 ab5b3ae 이전 코드 메모리에 보유 가능
+2. **Desktop e2e**: `prepare_weekly_payload({client:"hellomax", week:"2026-W21"})` → `generate_weekly_analysis_prompt` → host LLM 분석 → `finalize_weekly_dashboard` 전체 흐름
+3. **chmod 600 accounts.json** (644 warning 매 startup)
+4. **classifyConvTp 매핑 정확성** 검토 — AE 수동 분류와 Naver conversionType code 매칭 결과 비교 (구매완료/회원가입/신청완료/기타전환)
+5. **hygiene refactor** (low priority): `todayCompact` / `todayCompactDaily` 변수 중복 — fetchLiveWeeklyPayload + defaultLiveDailyProvider 외부로 hoist 가능
 
 ## Blockers
 
-- None
+- 없음
 
 ## Watch Out
 
-- **MCP server restart required** — old Desktop windows may cache stale tool list (register_client no longer exists)
-- **accounts.json == single source** — account.name matches client_id in all daily/weekly workflows. AE must maintain kebab-case naming consistency
-- **Live API path depends on classifyConvTp** — buildDailyRaw conversion code → 4-category mapping. If Naver API response structure changes, rebuild may fail silently
-- **weekly default path is cwd-relative** — MCP server must run from project root (or env override) for ./reports to resolve correctly
-- **xlsxPath fallback still active** — prepare_weekly_payload checks live API path first, then falls back to xlsxPath (priority 2)
+- **partial data 가능성**: live path는 미래/4xx 일자 silent skip → 진행 중인 주는 부분 데이터만 반환 (kpi_current이 7일치 아닐 수 있음)
+- **5xx fail-fast 유지**: 진짜 API 장애 시 weekly/daily tool throw → 의도된 behavior
+- **Desktop tsx 캐시**: source 변경해도 MCP 서버 프로세스 살아있는 한 메모리 모듈 reuse. 재시작 필수
+- **NaverAdsApiError.status 의존**: 400/401/403/404 모두 동일 skip. 401(인증)도 skip되니 자격증명 만료 시 silent partial → `validate_credentials` 별도 점검 권장
 
 ## Files Touched
 
-- None (status checkpoint only)
-
-## Commits Since Last Handoff
-
-1. a2fa57a `feat(mcp): live API path for weekly + ./reports default + consistent naming`
-   - prepare_weekly_payload: live API fetch path added
-   - generate_report: outputPath optional, defaults ./reports/
-   - weekly file naming: `<client>_<week>` consistent
-   - .gitignore: /reports/ added
-   - README: usage updated
-   - dates util: new
-
-2. d0c046c `pack: session handoff 2026-05-21`
-
-3. df096e5 `refactor(mcp): drop client-mappings.json, accounts.json as single source`
-   - Deleted: src/config/client-mappings.{ts,json}, src/runtime/client-mappings-{loader,writer}.ts
-   - Deleted: tests/client-mappings\*.test.ts, tests/register-client.test.ts
-   - Removed: register_client tool, naver-ads://client-mappings resource
-   - Impact: 8→7 external tools, 4→3 resources, 1303 lines deleted
-   - Tests: 346/346 pass (no regression)
-
-## Acceptance Criteria
-
-All prior session criteria met:
-
-- [ ] (Pending) Desktop e2e: prepare_weekly_payload live API → finalize_weekly_dashboard flow
-- [ ] (Pending) classifyConvTp mapping accuracy vs. AE hellomax categories
-- [ ] (Pending) reports/ rotation policy decision
+- src/mcp/server.ts (+21 lines: fetchByDay/fetchOne 가드)
+- .claude-project/memory/naver-api-quirks.md (미래 statDt 섹션 추가)

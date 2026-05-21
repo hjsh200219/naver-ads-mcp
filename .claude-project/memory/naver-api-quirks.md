@@ -62,6 +62,20 @@ UI 보관: 일자별 30일, 시간대별 7일. 자동화하려면 Playwright 외
 - 5xx: exponential backoff 3회
 - 429: `Retry-After` 헤더 존중 (skipNextDelay flag로 double-wait 방지)
 
+# 미래 statDt = 400 Bad Request (commit ab5b3ae)
+
+`/stat-reports` POST에 `statDt > today` 보내면 **HTTP 400** 즉시 반환. `prepare_weekly_payload` live path가 ISO week `[Mon, Sun]` 7일치 fetch하면 진행 중인 주에서 5/22~5/24 등 미래 일자 포함 → 전체 fail.
+
+대응 (src/mcp/server.ts `fetchByDay`, `fetchOne`):
+
+- `statDt > toYmdCompact(new Date())` 인 일자는 호출 자체 skip (continue)
+- 추가로 `NaverAdsApiError 4xx`도 `StatReportFailedError`와 동일 취급 (per-day skip). 5xx만 throw 전파
+- 효과: live API path는 "현재 시점까지의 partial 데이터"로 graceful degrade
+
+**Why:** Desktop에서 `prepare_weekly_payload({client, week:"2026-W21"})` 호출 시 "Client error (400)" 전체 fail. 미래 일자 + 4xx 거부 두 케이스가 합쳐진 결과.
+
+**How to apply:** 새 live API path 추가 시 동일 두 가드 필수. 단일 일자 4xx로 전체 집계가 실패하면 사용자 디버깅 매우 어려움.
+
 **Why:** 공식 문서가 부족하거나 GitHub Issues에서만 확인 가능한 사실. 새 reportTp 추가나 데이터 수집 cron 설계 시 반드시 참조.
 
 **How to apply:** 새 보고서 추가 시 (1) reportTp 보관일 확인 → 45일 미만이면 누적 저장 설계 (2) 영역별 분리 데이터 요구 시 API 미지원임을 사전 고지 (3) HMAC 디버깅 시 payload 형식 정확히 매치.
