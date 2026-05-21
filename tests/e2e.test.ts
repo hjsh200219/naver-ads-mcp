@@ -336,3 +336,38 @@ describe("E2E: generate_report smoke test", () => {
     expect(pcVat).toBe(10000);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Regression: generate_report must not swallow non-StatReportFailedError
+// errors from requestStatReport. Previously a catch-all returned [] and
+// hid real failures (network, 5xx, auth) for 8 weeks.
+// ---------------------------------------------------------------------------
+
+describe("generate_report error propagation", () => {
+  it("propagates network errors from requestStatReport (no silent empty)", async () => {
+    // Mock client whose POST /stat-reports rejects with a non-StatReportFailedError.
+    const flakyClient: INaverAdsClient = {
+      get: vi.fn(async (p: string) => {
+        if (p === "/ncc/campaigns") return [];
+        if (p === "/ncc/adgroups") return [];
+        if (p === "/ncc/keywords") return [];
+        if (p === "/ncc/product-groups") return [];
+        throw new Error(`Unexpected GET: ${p}`);
+      }),
+      post: vi.fn(async () => {
+        throw new Error("ECONNREFUSED simulated network failure");
+      }),
+      downloadBinary: vi.fn(async () => Buffer.from("")),
+    };
+
+    const { tools } = createServer({ client: flakyClient });
+
+    await expect(
+      tools.generate_report({
+        startDate: "20260206",
+        endDate: "20260206",
+        outputPath: path.join(tmpDir, "should-not-exist.xlsx"),
+      }),
+    ).rejects.toThrow(/ECONNREFUSED/);
+  });
+});

@@ -18,7 +18,11 @@ import {
   MapAccountStore,
   type IAccountStore,
 } from "../config/account-store.js";
-import { REPORT_TYPES, requestStatReport } from "../api/stat-reports.js";
+import {
+  REPORT_TYPES,
+  requestStatReport,
+  StatReportFailedError,
+} from "../api/stat-reports.js";
 import {
   getCampaigns,
   getAdGroups,
@@ -461,20 +465,27 @@ export function createServer(deps: ServerDeps = {}): {
     const fetchAll = async (
       reportTp: (typeof REPORT_TYPES)[number],
     ): Promise<Record<string, string>[]> => {
-      try {
-        const rows: Record<string, string>[] = [];
-        for (const statDt of dates) {
+      const rows: Record<string, string>[] = [];
+      for (const statDt of dates) {
+        try {
           const result = await requestStatReport({
             client,
             reportTp,
             statDt,
           });
           rows.push(...result.rows);
+        } catch (err) {
+          // Tolerate only Naver's explicit "no data" / "failed" signals for a
+          // single statDt — continue with remaining dates. Network / auth /
+          // 5xx errors propagate so callers see real failures instead of
+          // silently empty rows.
+          if (err instanceof StatReportFailedError) {
+            continue;
+          }
+          throw err;
         }
-        return rows;
-      } catch {
-        return [];
       }
+      return rows;
     };
 
     const [
