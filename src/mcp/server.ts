@@ -44,6 +44,7 @@ import {
   loadClientMappings,
   defaultClientMappingsPath,
 } from "../runtime/client-mappings-loader.js";
+import { upsertClientMapping } from "../runtime/client-mappings-writer.js";
 import type { ClientMappingsFile } from "../config/client-mappings.js";
 import { readHistory, appendHistory } from "../runtime/history.js";
 import { computePayloadHash } from "../runtime/payload-hash.js";
@@ -128,6 +129,12 @@ const FetchRawDataSchema = z.object({
   reportTp: z.enum(REPORT_TYPES),
   startDate: z.string().regex(/^\d{8}$/),
   endDate: z.string().regex(/^\d{8}$/),
+  /** When set, write all rows as JSON to this absolute path and return only path + count. Avoids the MCP 1MB result limit. */
+  outputPath: z.string().optional(),
+  /** When true, omit row payload and return only count + per-date summary. */
+  summarize: z.boolean().optional(),
+  /** Cap number of rows in the response (ignored when outputPath is set). Default: no cap. */
+  limit: z.number().int().positive().optional(),
 });
 
 const GenerateReportSchema = z.object({
@@ -176,6 +183,29 @@ const FinalizeWeeklySchema = z
     payload: PrecomputedPayloadSchema,
     ai_analysis: AiAnalysisSchema,
     correction: z.boolean().optional(),
+  })
+  .strict();
+
+const DailyThresholdsSchema = z
+  .object({
+    roas_mom_pct: z.number().optional(),
+    cpc_mom_pct: z.number().optional(),
+    impressions_dod_pct: z.number().optional(),
+  })
+  .strict();
+
+const RegisterClientSchema = z
+  .object({
+    account: AccountSchema,
+    client_id: z.string().regex(ClientIdPattern),
+    display_name: z.string().min(1).optional(),
+    customer_id: z.string().min(1).optional(),
+    recipients: z.array(z.string()),
+    cc: z.array(z.string()).optional(),
+    automation_enabled: z.boolean().optional(),
+    notes: z.string().optional(),
+    daily_thresholds: DailyThresholdsSchema.optional(),
+    overwrite: z.boolean().optional(),
   })
   .strict();
 
@@ -274,6 +304,9 @@ export function createServer(deps: ServerDeps = {}): {
     ) => Promise<unknown>;
     prepare_daily_dashboard: (
       args: z.infer<typeof PrepareDailySchema>,
+    ) => Promise<unknown>;
+    register_client: (
+      args: z.infer<typeof RegisterClientSchema>,
     ) => Promise<unknown>;
   };
 } {
@@ -428,10 +461,19 @@ export function createServer(deps: ServerDeps = {}): {
   const tool_fetch_raw_data = async (
     args: z.infer<typeof FetchRawDataSchema>,
   ) => {
-    const { reportTp, startDate, endDate, account } = args;
+    const {
+      reportTp,
+      startDate,
+      endDate,
+      account,
+      outputPath,
+      summarize,
+      limit,
+    } = args;
     const client = resolveClient(account);
     const dates = enumerateDates(startDate, endDate);
     const allRows: Record<string, unknown>[] = [];
+    const perDate: { date: string; count: number }[] = [];
     for (const statDt of dates) {
       const result = await requestStatReport({
         client,
@@ -439,13 +481,43 @@ export function createServer(deps: ServerDeps = {}): {
         statDt,
       });
       allRows.push(...result.rows);
+      perDate.push({ date: statDt, count: result.rows.length });
+    }
+
+    const base = { count: allRows.length, reportTp, startDate, endDate };
+
+    if (outputPath) {
+      const fsp = (await import("node:fs")).promises;
+      const pathMod = await import("node:path");
+      await fsp.mkdir(pathMod.dirname(outputPath), { recursive: true });
+      await fsp.writeFile(
+        outputPath,
+        JSON.stringify({ ...base, perDate, rows: allRows }, null, 2),
+        "utf8",
+      );
+      return { ...base, perDate, outputPath };
+    }
+
+    if (summarize) {
+      return { ...base, perDate };
+    }
+
+    const RESPONSE_LIMIT_BYTES = 900_000; // safety margin under 1MB
+    const truncatedRows = limit ? allRows.slice(0, limit) : allRows;
+    const candidate = {
+      ...base,
+      perDate,
+      rows: truncatedRows,
+      ...(limit && allRows.length > limit ? { truncated: true } : {}),
+    };
+    const size = Buffer.byteLength(JSON.stringify(candidate), "utf8");
+    if (size <= RESPONSE_LIMIT_BYTES) {
+      return candidate;
     }
     return {
-      rows: allRows,
-      count: allRows.length,
-      reportTp,
-      startDate,
-      endDate,
+      ...base,
+      perDate,
+      hint: `Result ${size} bytes exceeds the MCP 1MB response limit. Re-call with outputPath:"<abs-path>.json" to persist all rows, or summarize:true to skip rows, or limit:<N> to cap the row count.`,
     };
   };
 
@@ -573,6 +645,13 @@ export function createServer(deps: ServerDeps = {}): {
     args: z.infer<typeof PrepareWeeklyPayloadSchema>,
   ): Promise<unknown> => {
     const { client: clientId, week } = args;
+    const warnings: string[] = [];
+    const mappings = getClientMappings();
+    if (!mappings.mappings.some((m) => m.client_id === clientId)) {
+      warnings.push(
+        `client_id '${clientId}' not registered in client-mappings.json. Call register_client({client_id:'${clientId}', recipients:[...], display_name:'...'}) before finalize_weekly_dashboard to enable downstream delivery.`,
+      );
+    }
     let payload: PrecomputedPayload;
     if (deps.payloadProvider) {
       payload = await deps.payloadProvider({ client: clientId, week });
@@ -592,6 +671,7 @@ export function createServer(deps: ServerDeps = {}): {
     return {
       payload,
       payload_summary_md: buildPayloadSummaryMd(payload),
+      ...(warnings.length > 0 ? { warnings } : {}),
     };
   };
 
@@ -609,6 +689,13 @@ export function createServer(deps: ServerDeps = {}): {
     args: z.infer<typeof FinalizeWeeklySchema>,
   ): Promise<unknown> => {
     const { client: clientId, week, payload, ai_analysis: ai } = args;
+    const _finalizeWarnings: string[] = [];
+    const mappings = getClientMappings();
+    if (!mappings.mappings.some((m) => m.client_id === clientId)) {
+      _finalizeWarnings.push(
+        `client_id '${clientId}' not registered in client-mappings.json. Delivery metadata (recipients/cc) will not be available. Call register_client({client_id:'${clientId}', recipients:[...]}) to enable.`,
+      );
+    }
     const minute = Math.floor(Date.now() / 60_000);
     const payload_hash = computePayloadHash(
       { client: clientId, week, payload, ai },
@@ -639,7 +726,11 @@ export function createServer(deps: ServerDeps = {}): {
       html_path,
       xlsx_path,
       payload_hash,
-      data_warnings: [...payload.data_warnings, ...ai.data_warnings],
+      data_warnings: [
+        ...payload.data_warnings,
+        ...ai.data_warnings,
+        ..._finalizeWarnings,
+      ],
     };
   };
 
@@ -858,6 +949,57 @@ export function createServer(deps: ServerDeps = {}): {
     };
   };
 
+  const tool_register_client = async (
+    args: z.infer<typeof RegisterClientSchema>,
+  ): Promise<unknown> => {
+    // Fill customer_id from accounts.json when caller omits it. Account name
+    // defaults to client_id, then to the configured default account.
+    let customer_id = args.customer_id;
+    if (!customer_id) {
+      try {
+        const cred = getStore().get(args.account ?? args.client_id);
+        customer_id = cred.customerId;
+      } catch {
+        try {
+          const cred = getStore().get();
+          customer_id = cred.customerId;
+        } catch {
+          throw new Error(
+            `customer_id required: not provided and no matching account found for '${args.client_id}'`,
+          );
+        }
+      }
+    }
+    const mapping = {
+      client_id: args.client_id,
+      display_name: args.display_name ?? args.client_id,
+      customer_id,
+      recipients: args.recipients,
+      cc: args.cc ?? [],
+      automation_enabled: args.automation_enabled ?? true,
+      ...(args.notes !== undefined ? { notes: args.notes } : {}),
+      ...(args.daily_thresholds !== undefined
+        ? { daily_thresholds: args.daily_thresholds }
+        : {}),
+    };
+    const result = await upsertClientMapping(mapping, {
+      filePath: deps.clientMappingsPath ?? defaultClientMappingsPath(),
+      overwrite: args.overwrite,
+    });
+    // Invalidate cached mappings so next read picks up the change.
+    _mappingsCache = undefined;
+    return {
+      added: result.added,
+      updated: result.updated,
+      mapping: {
+        client_id: result.mapping.client_id,
+        display_name: result.mapping.display_name,
+        customer_id: result.mapping.customer_id,
+        automation_enabled: result.mapping.automation_enabled,
+      },
+    };
+  };
+
   // ---------------------------------------------------------------------------
   // MCP server wiring
   // ---------------------------------------------------------------------------
@@ -882,7 +1024,7 @@ export function createServer(deps: ServerDeps = {}): {
       {
         name: "fetch_raw_data",
         description:
-          "Fetch raw stat report rows for a date range and report type.",
+          "Fetch raw stat report rows for a date range and report type. Use outputPath to persist all rows to disk when the response would exceed the MCP 1MB limit, or summarize:true to skip rows and return only counts.",
         inputSchema: {
           type: "object",
           properties: {
@@ -894,6 +1036,22 @@ export function createServer(deps: ServerDeps = {}): {
             },
             startDate: { ...YYYYMMDD, description: "Start date YYYYMMDD" },
             endDate: { ...YYYYMMDD, description: "End date YYYYMMDD" },
+            outputPath: {
+              type: "string",
+              description:
+                "Absolute path. When set, all rows are written there and the response returns only path + count + perDate.",
+            },
+            summarize: {
+              type: "boolean",
+              description:
+                "When true, omit rows from the response and return only count + perDate.",
+            },
+            limit: {
+              type: "integer",
+              minimum: 1,
+              description:
+                "Cap number of rows in the response (ignored when outputPath is set).",
+            },
           },
           required: ["reportTp", "startDate", "endDate"],
         },
@@ -1022,6 +1180,60 @@ export function createServer(deps: ServerDeps = {}): {
           required: ["date"],
         },
       },
+      {
+        name: "register_client",
+        description:
+          "Add or update an entry in client-mappings.json. customer_id is auto-filled from the matching account in accounts.json when omitted (account name = client_id, then default). Use overwrite=true to replace an existing mapping.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            account: ACCOUNT_SCHEMA_FRAG,
+            client_id: {
+              type: "string",
+              pattern: "^[a-z0-9]+(-[a-z0-9]+)*$",
+              description: "Client identifier (kebab-case).",
+            },
+            display_name: {
+              type: "string",
+              description: "Human-readable label (defaults to client_id).",
+            },
+            customer_id: {
+              type: "string",
+              description:
+                "Naver customerId. Auto-resolved from accounts.json when omitted.",
+            },
+            recipients: {
+              type: "array",
+              items: { type: "string" },
+              description: "Advertiser email recipients (TO).",
+            },
+            cc: {
+              type: "array",
+              items: { type: "string" },
+              description: "CC list (defaults to []).",
+            },
+            automation_enabled: {
+              type: "boolean",
+              description:
+                "Whether prepare_daily_dashboard runs for this client (default true).",
+            },
+            notes: { type: "string" },
+            daily_thresholds: {
+              type: "object",
+              properties: {
+                roas_mom_pct: { type: "number" },
+                cpc_mom_pct: { type: "number" },
+                impressions_dod_pct: { type: "number" },
+              },
+            },
+            overwrite: {
+              type: "boolean",
+              description: "Replace existing entry with same client_id.",
+            },
+          },
+          required: ["client_id", "recipients"],
+        },
+      },
     ],
   }));
 
@@ -1085,6 +1297,12 @@ export function createServer(deps: ServerDeps = {}): {
             PrepareDailySchema,
             rawArgs,
             tool_prepare_daily_dashboard,
+          );
+        case "register_client":
+          return runValidated(
+            RegisterClientSchema,
+            rawArgs,
+            tool_register_client,
           );
         default:
           return {
@@ -1223,6 +1441,7 @@ export function createServer(deps: ServerDeps = {}): {
       generate_weekly_analysis_prompt: tool_generate_weekly_analysis_prompt,
       finalize_weekly_dashboard: tool_finalize_weekly_dashboard,
       prepare_daily_dashboard: tool_prepare_daily_dashboard,
+      register_client: tool_register_client,
     },
   };
 }

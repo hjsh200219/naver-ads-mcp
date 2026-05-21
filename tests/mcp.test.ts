@@ -84,13 +84,13 @@ describe("createServer", () => {
     expect(tools).toBeDefined();
   });
 
-  it("exposes exactly 9 tools (weekly dashboard split into 3 stages)", () => {
+  it("exposes exactly 10 tools (weekly dashboard split into 3 stages + register_client)", () => {
     const { tools } = createServer({
       credentialLoader: mockLoader,
       client: mockClient,
     });
     const toolNames = Object.keys(tools);
-    expect(toolNames).toHaveLength(9);
+    expect(toolNames).toHaveLength(10);
     expect(toolNames).toContain("validate_credentials");
     expect(toolNames).toContain("list_report_types");
     expect(toolNames).toContain("list_accounts");
@@ -100,6 +100,7 @@ describe("createServer", () => {
     expect(toolNames).toContain("generate_weekly_analysis_prompt");
     expect(toolNames).toContain("finalize_weekly_dashboard");
     expect(toolNames).toContain("prepare_daily_dashboard");
+    expect(toolNames).toContain("register_client");
   });
 });
 
@@ -232,6 +233,105 @@ describe("fetch_raw_data tool", () => {
       endDate: "20240101",
     });
     expect(parseResult.success).toBe(false);
+  });
+
+  it("summarize:true omits rows and returns only count + perDate", async () => {
+    vi.mocked(mockClient.post).mockResolvedValue({
+      reportJobId: 1,
+      status: "BUILT",
+      downloadUrl: "http://example.com/r.tsv.gz",
+    });
+    vi.mocked(mockClient.get).mockResolvedValue({
+      reportJobId: 1,
+      status: "BUILT",
+      downloadUrl: "http://example.com/r.tsv.gz",
+    });
+    const mockFetch = makeFetchWithTsv("nccCampaignId\tsalesAmt\n1\t10\n");
+    const { tools } = createServer({ client: mockClient, fetch: mockFetch });
+    const result = (await tools.fetch_raw_data({
+      reportTp: "AD",
+      startDate: "20240101",
+      endDate: "20240101",
+      summarize: true,
+    })) as {
+      rows?: unknown[];
+      count: number;
+      perDate: { date: string; count: number }[];
+    };
+    expect(result.rows).toBeUndefined();
+    expect(result.count).toBeGreaterThan(0);
+    expect(result.perDate).toHaveLength(1);
+    expect(result.perDate[0].date).toBe("20240101");
+  });
+
+  it("outputPath writes all rows to disk and returns only path + count", async () => {
+    const { mkdtempSync, rmSync, readFileSync, existsSync } =
+      await import("node:fs");
+    const os = await import("node:os");
+    const pathMod = await import("node:path");
+    const tmp = mkdtempSync(pathMod.join(os.tmpdir(), "fetch-raw-"));
+    const out = pathMod.join(tmp, "raw.json");
+    try {
+      vi.mocked(mockClient.post).mockResolvedValue({
+        reportJobId: 1,
+        status: "BUILT",
+        downloadUrl: "http://example.com/r.tsv.gz",
+      });
+      vi.mocked(mockClient.get).mockResolvedValue({
+        reportJobId: 1,
+        status: "BUILT",
+        downloadUrl: "http://example.com/r.tsv.gz",
+      });
+      const mockFetch = makeFetchWithTsv("nccCampaignId\tsalesAmt\n1\t10\n");
+      const { tools } = createServer({ client: mockClient, fetch: mockFetch });
+      const result = (await tools.fetch_raw_data({
+        reportTp: "AD",
+        startDate: "20240101",
+        endDate: "20240101",
+        outputPath: out,
+      })) as {
+        rows?: unknown[];
+        count: number;
+        outputPath: string;
+      };
+      expect(result.rows).toBeUndefined();
+      expect(result.outputPath).toBe(out);
+      expect(existsSync(out)).toBe(true);
+      const written = JSON.parse(readFileSync(out, "utf8")) as {
+        rows: unknown[];
+        count: number;
+      };
+      expect(written.count).toBe(written.rows.length);
+      expect(written.rows.length).toBeGreaterThan(0);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("limit caps the rows in the response and flags truncated", async () => {
+    vi.mocked(mockClient.post).mockResolvedValue({
+      reportJobId: 1,
+      status: "BUILT",
+      downloadUrl: "http://example.com/r.tsv.gz",
+    });
+    vi.mocked(mockClient.get).mockResolvedValue({
+      reportJobId: 1,
+      status: "BUILT",
+      downloadUrl: "http://example.com/r.tsv.gz",
+    });
+    const mockFetch = makeFetchWithTsv(
+      "nccCampaignId\tsalesAmt\n1\t10\n2\t20\n3\t30\n",
+    );
+    const { tools } = createServer({ client: mockClient, fetch: mockFetch });
+    const result = (await tools.fetch_raw_data({
+      reportTp: "AD",
+      startDate: "20240101",
+      endDate: "20240101",
+      limit: 1,
+    })) as { rows: unknown[]; count: number; truncated?: boolean };
+    expect(result.rows).toHaveLength(1);
+    expect(result.count).toBeGreaterThan(1);
+    expect(result.truncated).toBe(true);
   });
 });
 
