@@ -1064,7 +1064,7 @@ export function createServer(deps: ServerDeps = {}): {
       {
         name: "generate_report",
         description:
-          "Generate a full 10-sheet Excel report (.xlsx) for a date range — raw audit dump (SUMMARY / 매체/키워드/상품/검색어 성과 / 브랜드검색 hidden / 4 RAW sheets). NO AI analysis, NO html dashboard. Use this for raw data audit. For 광고주 발송용 weekly dashboard with AI analysis use the 3-tool weekly pipeline (prepare_weekly_payload → generate_weekly_analysis_prompt → finalize_weekly_dashboard). WHEN A USER SAYS '리포트 생성' OR 'GENERATE REPORT' AMBIGUOUSLY, ASK THEM FIRST which kind they want: (1) generate_report (raw 10-sheet audit, fast) or (2) weekly pipeline (KPI summary + AI analysis + html artifact, AE preview). RECOMMENDED: omit outputPath — file is saved to ./reports/<account>/<account>_<startDate>_<endDate>.xlsx on the MCP server host machine. IMPORTANT: outputPath must be an absolute path on the MCP server host (not the calling LLM's sandbox like /home/claude or /mnt/user-data). When omitted, the default reports/ directory is auto-created.",
+          "Generate a full 10-sheet Excel report (.xlsx) for a date range — raw audit dump (SUMMARY / 매체/키워드/상품/검색어 성과 / 브랜드검색 hidden / 4 RAW sheets). NO AI analysis, NO html dashboard. STOP — BEFORE CALLING THIS TOOL: if the user said '리포트' / '주간 리포트' / 'report' / 'weekly report' without explicitly choosing the format, you MUST first ASK them which of the two output formats they want and wait for their answer: (A) raw 10-sheet audit xlsx (this tool, fast, no analysis) or (B) weekly dashboard with AI analysis + html preview + 광고주 발송용 xlsx (prepare_weekly_payload → generate_weekly_analysis_prompt → finalize_weekly_dashboard). Do NOT assume — even '이번주 hellomax 리포트' is ambiguous between these two formats. Only proceed with generate_report when the user explicitly picks (A) or says 'raw audit' / '원시 데이터' / '10시트'. RECOMMENDED: omit outputPath — file is saved to ./reports/<account>/<account>_<startDate>_<endDate>.xlsx on the MCP server host machine. IMPORTANT: outputPath must be an absolute path on the MCP server host (not the calling LLM's sandbox like /home/claude or /mnt/user-data). When omitted, the default reports/ directory is auto-created.",
         inputSchema: {
           type: "object",
           properties: {
@@ -1083,7 +1083,7 @@ export function createServer(deps: ServerDeps = {}): {
       {
         name: "prepare_weekly_payload",
         description:
-          "Stage 1/3 of the weekly report pipeline. Parses the helloMAX form xlsx (or test payloadProvider) into a PrecomputedPayload and returns it together with a Markdown digest the host LLM can drop into its context.",
+          "Stage 1/3 of the weekly report pipeline. Builds a PrecomputedPayload + Markdown digest from live API (default) or helloMAX form xlsx (when xlsxPath is given). STOP — BEFORE CALLING THIS TOOL: if the user said '리포트' / '주간 리포트' / 'report' / 'weekly report' without explicitly choosing the format, you MUST first ASK them which output format they want and wait for their answer: (A) raw 10-sheet audit xlsx (generate_report, fast, no analysis) or (B) weekly dashboard with AI analysis + html preview + 광고주 발송용 xlsx (this 3-tool pipeline). Do NOT assume — even '이번주 hellomax 리포트' is ambiguous between these two formats. Only proceed with this tool when the user explicitly picks (B) or says 'dashboard' / '대시보드' / 'AI 분석' / '주간 보고서' (광고주 발송).",
         inputSchema: {
           type: "object",
           properties: {
