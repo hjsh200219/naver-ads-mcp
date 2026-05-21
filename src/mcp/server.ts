@@ -39,13 +39,6 @@ import { buildKeywordPerformance } from "../pivot/keyword.js";
 import { buildProductPerformance } from "../pivot/product.js";
 import { buildSearchTermPerformance } from "../pivot/search-term.js";
 import { writeReport } from "../excel/writer.js";
-import { toPublicResourcePayload } from "../config/client-mappings.js";
-import {
-  loadClientMappings,
-  defaultClientMappingsPath,
-} from "../runtime/client-mappings-loader.js";
-import { upsertClientMapping } from "../runtime/client-mappings-writer.js";
-import type { ClientMappingsFile } from "../config/client-mappings.js";
 import { readHistory, appendHistory } from "../runtime/history.js";
 import { computePayloadHash } from "../runtime/payload-hash.js";
 import { writeReportFiles } from "../output/file-writer.js";
@@ -89,10 +82,6 @@ export interface ServerDeps {
   /** Injectable for tests. */
   fetch?: typeof globalThis.fetch;
   baseUrl?: string;
-  /** v1.6 Phase 0 — explicit path for client-mappings.json (defaults to src/config/client-mappings.json). */
-  clientMappingsPath?: string;
-  /** v1.6 Phase 0 — pre-loaded client mappings (test injection). */
-  clientMappings?: ClientMappingsFile;
   /** v1.6 Phase 0/3 — base directory for history JSONL files (defaults to ~/.naver-ads-mcp/history). */
   historyBaseDir?: string;
   /** v1.6 Phase 3 — base directory for prepared report files (defaults to ~/.naver-ads-mcp/reports). */
@@ -183,29 +172,6 @@ const FinalizeWeeklySchema = z
     payload: PrecomputedPayloadSchema,
     ai_analysis: AiAnalysisSchema,
     correction: z.boolean().optional(),
-  })
-  .strict();
-
-const DailyThresholdsSchema = z
-  .object({
-    roas_mom_pct: z.number().optional(),
-    cpc_mom_pct: z.number().optional(),
-    impressions_dod_pct: z.number().optional(),
-  })
-  .strict();
-
-const RegisterClientSchema = z
-  .object({
-    account: AccountSchema,
-    client_id: z.string().regex(ClientIdPattern),
-    display_name: z.string().min(1).optional(),
-    customer_id: z.string().min(1).optional(),
-    recipients: z.array(z.string()),
-    cc: z.array(z.string()).optional(),
-    automation_enabled: z.boolean().optional(),
-    notes: z.string().optional(),
-    daily_thresholds: DailyThresholdsSchema.optional(),
-    overwrite: z.boolean().optional(),
   })
   .strict();
 
@@ -304,9 +270,6 @@ export function createServer(deps: ServerDeps = {}): {
     ) => Promise<unknown>;
     prepare_daily_dashboard: (
       args: z.infer<typeof PrepareDailySchema>,
-    ) => Promise<unknown>;
-    register_client: (
-      args: z.infer<typeof RegisterClientSchema>,
     ) => Promise<unknown>;
   };
 } {
@@ -645,13 +608,6 @@ export function createServer(deps: ServerDeps = {}): {
     args: z.infer<typeof PrepareWeeklyPayloadSchema>,
   ): Promise<unknown> => {
     const { client: clientId, week } = args;
-    const warnings: string[] = [];
-    const mappings = getClientMappings();
-    if (!mappings.mappings.some((m) => m.client_id === clientId)) {
-      warnings.push(
-        `client_id '${clientId}' not registered in client-mappings.json. Call register_client({client_id:'${clientId}', recipients:[...], display_name:'...'}) before finalize_weekly_dashboard to enable downstream delivery.`,
-      );
-    }
     let payload: PrecomputedPayload;
     if (deps.payloadProvider) {
       payload = await deps.payloadProvider({ client: clientId, week });
@@ -671,7 +627,6 @@ export function createServer(deps: ServerDeps = {}): {
     return {
       payload,
       payload_summary_md: buildPayloadSummaryMd(payload),
-      ...(warnings.length > 0 ? { warnings } : {}),
     };
   };
 
@@ -689,13 +644,6 @@ export function createServer(deps: ServerDeps = {}): {
     args: z.infer<typeof FinalizeWeeklySchema>,
   ): Promise<unknown> => {
     const { client: clientId, week, payload, ai_analysis: ai } = args;
-    const _finalizeWarnings: string[] = [];
-    const mappings = getClientMappings();
-    if (!mappings.mappings.some((m) => m.client_id === clientId)) {
-      _finalizeWarnings.push(
-        `client_id '${clientId}' not registered in client-mappings.json. Delivery metadata (recipients/cc) will not be available. Call register_client({client_id:'${clientId}', recipients:[...]}) to enable.`,
-      );
-    }
     const minute = Math.floor(Date.now() / 60_000);
     const payload_hash = computePayloadHash(
       { client: clientId, week, payload, ai },
@@ -726,11 +674,7 @@ export function createServer(deps: ServerDeps = {}): {
       html_path,
       xlsx_path,
       payload_hash,
-      data_warnings: [
-        ...payload.data_warnings,
-        ...ai.data_warnings,
-        ..._finalizeWarnings,
-      ],
+      data_warnings: [...payload.data_warnings, ...ai.data_warnings],
     };
   };
 
@@ -741,18 +685,19 @@ export function createServer(deps: ServerDeps = {}): {
   // Maps a client_id (mappings) → account name (accountStore) by matching
   // customer_id. Returns undefined when the mapping has placeholder
   // customer_id ("TBD") or no matching account exists — caller decides whether
-  // to skip or surface a warning.
+  // Returns the account name for a client_id. The client_id IS the account name
+  // (no separate mappings layer). Returns undefined when the account is missing
+  // so callers can decide whether to skip or surface a warning.
   function findAccountForClient(clientId: string): string | undefined {
-    const mappings = getClientMappings();
-    const m = mappings.mappings.find((x) => x.client_id === clientId);
-    if (!m || !m.customer_id || m.customer_id === "TBD") return undefined;
-    // Use getStore() not deps.accountStore — env-only mode (production
-    // without explicit accountStore injection) builds the store lazily via
-    // credentialLoader. Reading deps.accountStore directly returns undefined
-    // and silently disables the live provider.
-    const store = getStore();
-    const entry = store.list().find((a) => a.customerId === m.customer_id);
-    return entry?.name;
+    try {
+      const cred = getStore().get(clientId);
+      const entry = getStore()
+        .list()
+        .find((a) => a.customerId === cred.customerId);
+      return entry?.name ?? clientId;
+    } catch {
+      return undefined;
+    }
   }
 
   // Default daily-payload provider: live API path. Fetches AD + AD_CONVERSION
@@ -880,42 +825,36 @@ export function createServer(deps: ServerDeps = {}): {
   const tool_prepare_daily_dashboard = async (
     args: z.infer<typeof PrepareDailySchema>,
   ): Promise<unknown> => {
-    const mappings = getClientMappings();
     const provider = deps.dailyPayloadProvider ?? defaultLiveDailyProvider;
+    const accounts = getStore().list();
 
     const summary: { client: string; violation_count: number }[] = [];
     const allViolations: (ThresholdViolation & { client: string })[] = [];
     const allWarnings: string[] = [];
 
-    for (const m of mappings.mappings) {
-      const payload = await provider({ client: m.client_id, date: args.date });
-      const thresholds = resolveThresholds(m.daily_thresholds);
+    for (const acc of accounts) {
+      const clientId = acc.name;
+      const payload = await provider({ client: clientId, date: args.date });
+      const thresholds = resolveThresholds(undefined);
       const violations = evaluateThresholds(payload.derived, thresholds);
-      summary.push({
-        client: m.client_id,
-        violation_count: violations.length,
-      });
+      summary.push({ client: clientId, violation_count: violations.length });
       for (const v of violations) {
-        allViolations.push({ ...v, client: m.client_id });
+        allViolations.push({ ...v, client: clientId });
       }
       for (const w of payload.data_warnings) {
-        allWarnings.push(`${m.client_id}: ${w}`);
+        allWarnings.push(`${clientId}: ${w}`);
       }
       const payload_hash = crypto
         .createHash("sha256")
         .update(
-          JSON.stringify({
-            client: m.client_id,
-            date: args.date,
-            violations,
-          }),
+          JSON.stringify({ client: clientId, date: args.date, violations }),
         )
         .digest("hex");
       await appendHistory({
         baseDir: HISTORY_BASE_DIR,
         entry: {
           week: args.date,
-          client: m.client_id,
+          client: clientId,
           payload_hash,
           prepared_at: new Date().toISOString(),
           html_path: "",
@@ -946,57 +885,6 @@ export function createServer(deps: ServerDeps = {}): {
       violations: allViolations,
       summary,
       data_warnings: allWarnings,
-    };
-  };
-
-  const tool_register_client = async (
-    args: z.infer<typeof RegisterClientSchema>,
-  ): Promise<unknown> => {
-    // Fill customer_id from accounts.json when caller omits it. Account name
-    // defaults to client_id, then to the configured default account.
-    let customer_id = args.customer_id;
-    if (!customer_id) {
-      try {
-        const cred = getStore().get(args.account ?? args.client_id);
-        customer_id = cred.customerId;
-      } catch {
-        try {
-          const cred = getStore().get();
-          customer_id = cred.customerId;
-        } catch {
-          throw new Error(
-            `customer_id required: not provided and no matching account found for '${args.client_id}'`,
-          );
-        }
-      }
-    }
-    const mapping = {
-      client_id: args.client_id,
-      display_name: args.display_name ?? args.client_id,
-      customer_id,
-      recipients: args.recipients,
-      cc: args.cc ?? [],
-      automation_enabled: args.automation_enabled ?? true,
-      ...(args.notes !== undefined ? { notes: args.notes } : {}),
-      ...(args.daily_thresholds !== undefined
-        ? { daily_thresholds: args.daily_thresholds }
-        : {}),
-    };
-    const result = await upsertClientMapping(mapping, {
-      filePath: deps.clientMappingsPath ?? defaultClientMappingsPath(),
-      overwrite: args.overwrite,
-    });
-    // Invalidate cached mappings so next read picks up the change.
-    _mappingsCache = undefined;
-    return {
-      added: result.added,
-      updated: result.updated,
-      mapping: {
-        client_id: result.mapping.client_id,
-        display_name: result.mapping.display_name,
-        customer_id: result.mapping.customer_id,
-        automation_enabled: result.mapping.automation_enabled,
-      },
     };
   };
 
@@ -1180,60 +1068,6 @@ export function createServer(deps: ServerDeps = {}): {
           required: ["date"],
         },
       },
-      {
-        name: "register_client",
-        description:
-          "Add or update an entry in client-mappings.json. customer_id is auto-filled from the matching account in accounts.json when omitted (account name = client_id, then default). Use overwrite=true to replace an existing mapping.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            account: ACCOUNT_SCHEMA_FRAG,
-            client_id: {
-              type: "string",
-              pattern: "^[a-z0-9]+(-[a-z0-9]+)*$",
-              description: "Client identifier (kebab-case).",
-            },
-            display_name: {
-              type: "string",
-              description: "Human-readable label (defaults to client_id).",
-            },
-            customer_id: {
-              type: "string",
-              description:
-                "Naver customerId. Auto-resolved from accounts.json when omitted.",
-            },
-            recipients: {
-              type: "array",
-              items: { type: "string" },
-              description: "Advertiser email recipients (TO).",
-            },
-            cc: {
-              type: "array",
-              items: { type: "string" },
-              description: "CC list (defaults to []).",
-            },
-            automation_enabled: {
-              type: "boolean",
-              description:
-                "Whether prepare_daily_dashboard runs for this client (default true).",
-            },
-            notes: { type: "string" },
-            daily_thresholds: {
-              type: "object",
-              properties: {
-                roas_mom_pct: { type: "number" },
-                cpc_mom_pct: { type: "number" },
-                impressions_dod_pct: { type: "number" },
-              },
-            },
-            overwrite: {
-              type: "boolean",
-              description: "Replace existing entry with same client_id.",
-            },
-          },
-          required: ["client_id", "recipients"],
-        },
-      },
     ],
   }));
 
@@ -1298,12 +1132,6 @@ export function createServer(deps: ServerDeps = {}): {
             rawArgs,
             tool_prepare_daily_dashboard,
           );
-        case "register_client":
-          return runValidated(
-            RegisterClientSchema,
-            rawArgs,
-            tool_register_client,
-          );
         default:
           return {
             content: toContentText({ error: `Unknown tool: ${name}` }),
@@ -1319,16 +1147,6 @@ export function createServer(deps: ServerDeps = {}): {
     }
   });
 
-  // Lazy client-mappings loader (cache after first read).
-  let _mappingsCache: ClientMappingsFile | undefined = deps.clientMappings;
-  function getClientMappings(): ClientMappingsFile {
-    if (_mappingsCache) return _mappingsCache;
-    _mappingsCache = loadClientMappings(
-      deps.clientMappingsPath ?? defaultClientMappingsPath(),
-    );
-    return _mappingsCache;
-  }
-
   const RESOURCES = [
     {
       uri: "naver-ads://report-types",
@@ -1342,13 +1160,6 @@ export function createServer(deps: ServerDeps = {}): {
       name: "Accounts",
       description:
         "Configured Naver Ads accounts (name + customerId only — no secrets).",
-      mimeType: "application/json",
-    },
-    {
-      uri: "naver-ads://client-mappings",
-      name: "Client Mappings",
-      description:
-        "Weekly report client identifiers and labels (recipients/cc redacted for PII).",
       mimeType: "application/json",
     },
     {
@@ -1384,18 +1195,6 @@ export function createServer(deps: ServerDeps = {}): {
               uri,
               mimeType: "application/json",
               text: JSON.stringify(tool_list_accounts()),
-            },
-          ],
-        };
-      case "naver-ads://client-mappings":
-        return {
-          contents: [
-            {
-              uri,
-              mimeType: "application/json",
-              text: JSON.stringify(
-                toPublicResourcePayload(getClientMappings()),
-              ),
             },
           ],
         };
@@ -1441,7 +1240,6 @@ export function createServer(deps: ServerDeps = {}): {
       generate_weekly_analysis_prompt: tool_generate_weekly_analysis_prompt,
       finalize_weekly_dashboard: tool_finalize_weekly_dashboard,
       prepare_daily_dashboard: tool_prepare_daily_dashboard,
-      register_client: tool_register_client,
     },
   };
 }

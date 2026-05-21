@@ -4,7 +4,11 @@ import os from "node:os";
 import path from "node:path";
 import { createServer } from "../src/mcp/server.js";
 import type { DailyPayload } from "../src/parser/aggregate-daily.js";
-import type { ClientMappingsFile } from "../src/config/client-mappings.js";
+import {
+  MapAccountStore,
+  type IAccountStore,
+} from "../src/config/account-store.js";
+import type { NaverAdsCredentials } from "../src/config/credentials.js";
 
 let workDir: string;
 let consoleSpy: ReturnType<typeof vi.spyOn>;
@@ -14,35 +18,20 @@ const stubClient = {
   post: async () => ({}),
 } as unknown as Parameters<typeof createServer>[0]["client"];
 
-const MAPPINGS: ClientMappingsFile = {
-  mappings: [
-    {
-      client_id: "client-a",
-      display_name: "Client A",
-      customer_id: "11111",
-      recipients: [],
-      cc: [],
-      automation_enabled: true,
-    },
-    {
-      client_id: "client-b",
-      display_name: "Client B",
-      customer_id: "22222",
-      recipients: [],
-      cc: [],
-      automation_enabled: true,
-      daily_thresholds: { roas_mom_pct: -10 },
-    },
-    {
-      client_id: "client-c",
-      display_name: "Client C",
-      customer_id: "33333",
-      recipients: [],
-      cc: [],
-      automation_enabled: true,
-    },
-  ],
-};
+const FAKE_CRED = (cid: string): NaverAdsCredentials => ({
+  customerId: cid,
+  accessLicense: "AKEY",
+  secretKey: "SKEY",
+});
+
+function makeAccounts(names: string[]): IAccountStore {
+  const accounts = new Map(
+    names.map((n, i) => [n, FAKE_CRED(String(11111 + i * 11111))]),
+  );
+  return new MapAccountStore({ accounts, defaultName: names[0] });
+}
+
+const DEFAULT_CLIENT_IDS = ["client-a", "client-b", "client-c"];
 
 function cleanPayload(advertiser: string): DailyPayload {
   return {
@@ -122,7 +111,7 @@ describe("US-020 prepare_daily_dashboard MCP tool", () => {
   it("is registered in the tool list (count 6 → 7)", async () => {
     const { tools } = createServer({
       client: stubClient,
-      clientMappings: MAPPINGS,
+      accountStore: makeAccounts(DEFAULT_CLIENT_IDS),
       historyBaseDir: workDir,
     });
     expect(Object.keys(tools)).toContain("prepare_daily_dashboard");
@@ -131,7 +120,7 @@ describe("US-020 prepare_daily_dashboard MCP tool", () => {
   it("returns 0 violations when all clients are clean", async () => {
     const { tools } = createServer({
       client: stubClient,
-      clientMappings: MAPPINGS,
+      accountStore: makeAccounts(DEFAULT_CLIENT_IDS),
       historyBaseDir: workDir,
       dailyPayloadProvider: async ({ client }: { client: string }) =>
         cleanPayload(client),
@@ -153,7 +142,7 @@ describe("US-020 prepare_daily_dashboard MCP tool", () => {
   it("appends one history entry per client even when violations=0 (PRD US-020 AC)", async () => {
     const { tools } = createServer({
       client: stubClient,
-      clientMappings: MAPPINGS,
+      accountStore: makeAccounts(DEFAULT_CLIENT_IDS),
       historyBaseDir: workDir,
       dailyPayloadProvider: async ({ client }: { client: string }) =>
         cleanPayload(client),
@@ -161,10 +150,10 @@ describe("US-020 prepare_daily_dashboard MCP tool", () => {
     await tools.prepare_daily_dashboard({ date: "2026-05-08" });
 
     const { readHistory } = await import("../src/runtime/history.js");
-    for (const m of MAPPINGS.mappings) {
+    for (const clientId of DEFAULT_CLIENT_IDS) {
       const entries = await readHistory({
         baseDir: workDir,
-        client: m.client_id,
+        client: clientId,
         week: "2026-05-08",
       });
       expect(entries).toHaveLength(1);
@@ -176,7 +165,7 @@ describe("US-020 prepare_daily_dashboard MCP tool", () => {
   it("single-client breach: emits stdout warn + appends history with daily_prepared status", async () => {
     const { tools } = createServer({
       client: stubClient,
-      clientMappings: MAPPINGS,
+      accountStore: makeAccounts(DEFAULT_CLIENT_IDS),
       historyBaseDir: workDir,
       dailyPayloadProvider: async ({ client }: { client: string }) =>
         client === "client-a" ? breachedPayload(client) : cleanPayload(client),
@@ -209,7 +198,7 @@ describe("US-020 prepare_daily_dashboard MCP tool", () => {
   it("sorts summary by violation_count descending", async () => {
     const { tools } = createServer({
       client: stubClient,
-      clientMappings: MAPPINGS,
+      accountStore: makeAccounts(DEFAULT_CLIENT_IDS),
       historyBaseDir: workDir,
       dailyPayloadProvider: async ({ client }: { client: string }) => {
         if (client === "client-a") {
@@ -224,11 +213,11 @@ describe("US-020 prepare_daily_dashboard MCP tool", () => {
           };
         }
         if (client === "client-b") {
-          // 1 violation: roas_mom -15 against override -10
+          // 1 violation against default thresholds: roas_mom -25 (worse than -20)
           return {
             ...cleanPayload(client),
             derived: {
-              roas_mom_pct: -15,
+              roas_mom_pct: -25,
               cpc_mom_pct: 0,
               impressions_dod_pct: 0,
             },
@@ -246,38 +235,10 @@ describe("US-020 prepare_daily_dashboard MCP tool", () => {
     expect(result.summary[1].violation_count).toBe(1);
   });
 
-  it("honors per-client daily_thresholds override (client-b roas_mom_pct -10)", async () => {
-    // client-b override = -10. Default = -20. Actual -15 must breach override (worse than -10)
-    // but would NOT breach default (-15 is better than -20).
-    const { tools } = createServer({
-      client: stubClient,
-      clientMappings: MAPPINGS,
-      historyBaseDir: workDir,
-      dailyPayloadProvider: async ({ client }: { client: string }) => {
-        return {
-          ...cleanPayload(client),
-          derived: {
-            roas_mom_pct: -15,
-            cpc_mom_pct: 0,
-            impressions_dod_pct: 0,
-          },
-        };
-      },
-    });
-    const result = (await tools.prepare_daily_dashboard({
-      date: "2026-05-08",
-    })) as { summary: { client: string; violation_count: number }[] };
-    // client-b should breach (override -10), others should not (default -20).
-    const b = result.summary.find((s) => s.client === "client-b");
-    const a = result.summary.find((s) => s.client === "client-a");
-    expect(b?.violation_count).toBe(1);
-    expect(a?.violation_count).toBe(0);
-  });
-
   it("propagates data_warnings from aggregateDailyPayload", async () => {
     const { tools } = createServer({
       client: stubClient,
-      clientMappings: MAPPINGS,
+      accountStore: makeAccounts(DEFAULT_CLIENT_IDS),
       historyBaseDir: workDir,
       dailyPayloadProvider: async ({ client }: { client: string }) => ({
         ...cleanPayload(client),
@@ -293,7 +254,7 @@ describe("US-020 prepare_daily_dashboard MCP tool", () => {
   it("daily_prepared entries are surfaced through naver-ads://history/{client}", async () => {
     const { server, tools } = createServer({
       client: stubClient,
-      clientMappings: MAPPINGS,
+      accountStore: makeAccounts(DEFAULT_CLIENT_IDS),
       historyBaseDir: workDir,
       dailyPayloadProvider: async ({ client }: { client: string }) =>
         client === "client-a" ? breachedPayload(client) : cleanPayload(client),
@@ -325,19 +286,10 @@ describe("US-020 prepare_daily_dashboard MCP tool", () => {
   });
 
   it("completes for 6 mocked clients within 5 seconds", async () => {
-    const sixMappings: ClientMappingsFile = {
-      mappings: Array.from({ length: 6 }, (_, i) => ({
-        client_id: `client-${i + 1}`,
-        display_name: `Client ${i + 1}`,
-        customer_id: String(10000 + i),
-        recipients: [],
-        cc: [],
-        automation_enabled: true,
-      })),
-    };
+    const sixIds = Array.from({ length: 6 }, (_, i) => `client-${i + 1}`);
     const { tools } = createServer({
       client: stubClient,
-      clientMappings: sixMappings,
+      accountStore: makeAccounts(sixIds),
       historyBaseDir: workDir,
       dailyPayloadProvider: async ({ client }: { client: string }) =>
         cleanPayload(client),

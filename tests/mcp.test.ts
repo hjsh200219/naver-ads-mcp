@@ -84,13 +84,13 @@ describe("createServer", () => {
     expect(tools).toBeDefined();
   });
 
-  it("exposes exactly 10 tools (weekly dashboard split into 3 stages + register_client)", () => {
+  it("exposes exactly 9 tools (weekly dashboard split into 3 stages)", () => {
     const { tools } = createServer({
       credentialLoader: mockLoader,
       client: mockClient,
     });
     const toolNames = Object.keys(tools);
-    expect(toolNames).toHaveLength(10);
+    expect(toolNames).toHaveLength(9);
     expect(toolNames).toContain("validate_credentials");
     expect(toolNames).toContain("list_report_types");
     expect(toolNames).toContain("list_accounts");
@@ -100,7 +100,6 @@ describe("createServer", () => {
     expect(toolNames).toContain("generate_weekly_analysis_prompt");
     expect(toolNames).toContain("finalize_weekly_dashboard");
     expect(toolNames).toContain("prepare_daily_dashboard");
-    expect(toolNames).toContain("register_client");
   });
 });
 
