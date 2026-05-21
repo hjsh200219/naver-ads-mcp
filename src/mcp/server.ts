@@ -45,10 +45,19 @@ import { readHistory, appendHistory } from "../runtime/history.js";
 import { computePayloadHash } from "../runtime/payload-hash.js";
 import { writeReportFiles } from "../output/file-writer.js";
 import { renderArtifactHtml } from "../dashboard/artifact-html.js";
-import { generateAiComment, type IAnthropic } from "../analyzer/ai-comment.js";
-import type { PrecomputedPayload } from "../parser/types.js";
+import {
+  type PrecomputedPayload,
+  PrecomputedPayloadSchema,
+  AiAnalysisSchema,
+} from "../parser/types.js";
 import { parseHelloMaxXlsx } from "../parser/excel-template.js";
 import { aggregateWeeklyPayload } from "../parser/aggregate-payload.js";
+import {
+  buildSystemPrompt,
+  buildUserPrompt,
+  buildPayloadSummaryMd,
+  EXPECTED_AI_ANALYSIS_SCHEMA,
+} from "../analyzer/weekly-prompt.js";
 import {
   aggregateDailyPayload,
   type DailyPayload,
@@ -82,10 +91,6 @@ export interface ServerDeps {
   historyBaseDir?: string;
   /** v1.6 Phase 3 — base directory for prepared report files (defaults to ~/.naver-ads-mcp/reports). */
   reportsBaseDir?: string;
-  /** v1.6 Phase 2/3 — Anthropic client for prepare_weekly_dashboard. Tests inject a mock. */
-  anthropic?: IAnthropic;
-  /** v1.6 Phase 2/3 — lazy factory used when prepare_weekly_dashboard is invoked but no `anthropic` was injected. Lets cli.ts pass a builder that only loads ANTHROPIC_API_KEY at first use, so the server still boots without the key. */
-  anthropicFactory?: () => IAnthropic;
   /** v1.6 Phase 1 — provider that returns a PrecomputedPayload for (client, week). Tests inject. */
   payloadProvider?: (args: {
     client: string;
@@ -137,8 +142,10 @@ const PrepareDailySchema = z
     date: z.string().regex(DatePattern),
   })
   .strict();
-const PrepareWeeklySchema = z
+
+const PrepareWeeklyPayloadSchema = z
   .object({
+    account: AccountSchema,
     client: z.string().regex(ClientIdPattern),
     week: z.string().regex(WeekPattern),
     /** Path to the AE-uploaded helloMAX form xlsx. Required when no payloadProvider is injected. */
@@ -147,7 +154,22 @@ const PrepareWeeklySchema = z
     targetWeekLabel: z.string().regex(WeeklyLabelPattern).optional(),
     /** 일별RAW 주차 label for the comparison week. */
     compareWeekLabel: z.string().regex(WeeklyLabelPattern).optional(),
-    revisions: z.string().optional(),
+  })
+  .strict();
+
+const GenerateWeeklyPromptSchema = z
+  .object({
+    payload: PrecomputedPayloadSchema,
+  })
+  .strict();
+
+const FinalizeWeeklySchema = z
+  .object({
+    account: AccountSchema,
+    client: z.string().regex(ClientIdPattern),
+    week: z.string().regex(WeekPattern),
+    payload: PrecomputedPayloadSchema,
+    ai_analysis: AiAnalysisSchema,
     correction: z.boolean().optional(),
   })
   .strict();
@@ -236,8 +258,14 @@ export function createServer(deps: ServerDeps = {}): {
     generate_report: (
       args: z.infer<typeof GenerateReportSchema>,
     ) => Promise<unknown>;
-    prepare_weekly_dashboard: (
-      args: z.infer<typeof PrepareWeeklySchema>,
+    prepare_weekly_payload: (
+      args: z.infer<typeof PrepareWeeklyPayloadSchema>,
+    ) => Promise<unknown>;
+    generate_weekly_analysis_prompt: (
+      args: z.infer<typeof GenerateWeeklyPromptSchema>,
+    ) => Promise<unknown>;
+    finalize_weekly_dashboard: (
+      args: z.infer<typeof FinalizeWeeklySchema>,
     ) => Promise<unknown>;
     prepare_daily_dashboard: (
       args: z.infer<typeof PrepareDailySchema>,
@@ -529,19 +557,10 @@ export function createServer(deps: ServerDeps = {}): {
   const HISTORY_BASE_DIR =
     deps.historyBaseDir ?? path.join(os.homedir(), ".naver-ads-mcp", "history");
 
-  const tool_prepare_weekly_dashboard = async (
-    args: z.infer<typeof PrepareWeeklySchema>,
+  const tool_prepare_weekly_payload = async (
+    args: z.infer<typeof PrepareWeeklyPayloadSchema>,
   ): Promise<unknown> => {
     const { client: clientId, week } = args;
-    let anthropic = deps.anthropic;
-    if (anthropic === undefined && deps.anthropicFactory) {
-      anthropic = deps.anthropicFactory();
-    }
-    if (anthropic === undefined) {
-      throw new Error(
-        "prepare_weekly_dashboard requires an anthropic client (set ANTHROPIC_API_KEY and pass AnthropicClient, or supply anthropicFactory).",
-      );
-    }
     let payload: PrecomputedPayload;
     if (deps.payloadProvider) {
       payload = await deps.payloadProvider({ client: clientId, week });
@@ -555,13 +574,29 @@ export function createServer(deps: ServerDeps = {}): {
       });
     } else {
       throw new Error(
-        "prepare_weekly_dashboard: either a payloadProvider must be configured, or args must include xlsxPath + targetWeekLabel + compareWeekLabel.",
+        "prepare_weekly_payload: either a payloadProvider must be configured, or args must include xlsxPath + targetWeekLabel + compareWeekLabel.",
       );
     }
-    const ai = await generateAiComment({
-      anthropic,
+    return {
       payload,
-    });
+      payload_summary_md: buildPayloadSummaryMd(payload),
+    };
+  };
+
+  const tool_generate_weekly_analysis_prompt = async (
+    args: z.infer<typeof GenerateWeeklyPromptSchema>,
+  ): Promise<unknown> => {
+    return {
+      system_prompt: buildSystemPrompt(),
+      user_prompt: buildUserPrompt(args.payload),
+      expected_schema: EXPECTED_AI_ANALYSIS_SCHEMA,
+    };
+  };
+
+  const tool_finalize_weekly_dashboard = async (
+    args: z.infer<typeof FinalizeWeeklySchema>,
+  ): Promise<unknown> => {
+    const { client: clientId, week, payload, ai_analysis: ai } = args;
     const minute = Math.floor(Date.now() / 60_000);
     const payload_hash = computePayloadHash(
       { client: clientId, week, payload, ai },
@@ -735,12 +770,13 @@ export function createServer(deps: ServerDeps = {}): {
         },
       },
       {
-        name: "prepare_weekly_dashboard",
+        name: "prepare_weekly_payload",
         description:
-          "Generate the weekly AI commentary report. Returns AE preview artifact HTML plus 광고주 발송용 html and xlsx file paths. AE attaches those files to their mail client.",
+          "Stage 1/3 of the weekly report pipeline. Parses the helloMAX form xlsx (or test payloadProvider) into a PrecomputedPayload and returns it together with a Markdown digest the host LLM can drop into its context.",
         inputSchema: {
           type: "object",
           properties: {
+            account: ACCOUNT_SCHEMA_FRAG,
             client: {
               type: "string",
               pattern: "^[a-z0-9]+(-[a-z0-9]+)*$",
@@ -751,10 +787,69 @@ export function createServer(deps: ServerDeps = {}): {
               pattern: "^\\d{4}-W\\d{2}$",
               description: "ISO week (e.g. 2026-W17).",
             },
-            revisions: {
+            xlsxPath: {
               type: "string",
               description:
-                "Optional natural-language revision instructions from the AE.",
+                "Absolute path to the AE-uploaded helloMAX form xlsx.",
+            },
+            targetWeekLabel: {
+              type: "string",
+              pattern: "^\\d{4}-\\d{2}-\\d{2}주차$",
+              description:
+                "Weekly label of the current week (e.g. 2026-05-04주차).",
+            },
+            compareWeekLabel: {
+              type: "string",
+              pattern: "^\\d{4}-\\d{2}-\\d{2}주차$",
+              description: "Weekly label of the comparison week.",
+            },
+          },
+          required: ["client", "week"],
+        },
+      },
+      {
+        name: "generate_weekly_analysis_prompt",
+        description:
+          "Stage 2/3 of the weekly report pipeline. Returns the system_prompt, user_prompt, and expected_schema the host LLM uses to produce the AiAnalysis.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            payload: {
+              type: "object",
+              description:
+                "PrecomputedPayload returned by prepare_weekly_payload.",
+            },
+          },
+          required: ["payload"],
+        },
+      },
+      {
+        name: "finalize_weekly_dashboard",
+        description:
+          "Stage 3/3 of the weekly report pipeline. Validates the host-provided AiAnalysis, renders 광고주 발송용 html/xlsx + AE preview artifact, appends a history entry, and returns the file paths and payload_hash.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            account: ACCOUNT_SCHEMA_FRAG,
+            client: {
+              type: "string",
+              pattern: "^[a-z0-9]+(-[a-z0-9]+)*$",
+              description: "Client identifier (kebab-case).",
+            },
+            week: {
+              type: "string",
+              pattern: "^\\d{4}-W\\d{2}$",
+              description: "ISO week (e.g. 2026-W17).",
+            },
+            payload: {
+              type: "object",
+              description:
+                "PrecomputedPayload returned by prepare_weekly_payload.",
+            },
+            ai_analysis: {
+              type: "object",
+              description:
+                "AiAnalysis the host LLM produced from generate_weekly_analysis_prompt.",
             },
             correction: {
               type: "boolean",
@@ -762,7 +857,7 @@ export function createServer(deps: ServerDeps = {}): {
                 "Set true when re-issuing a correction after a sent report contained an error.",
             },
           },
-          required: ["client", "week"],
+          required: ["client", "week", "payload", "ai_analysis"],
         },
       },
       {
@@ -821,11 +916,23 @@ export function createServer(deps: ServerDeps = {}): {
             rawArgs,
             tool_generate_report,
           );
-        case "prepare_weekly_dashboard":
+        case "prepare_weekly_payload":
           return runValidated(
-            PrepareWeeklySchema,
+            PrepareWeeklyPayloadSchema,
             rawArgs,
-            tool_prepare_weekly_dashboard,
+            tool_prepare_weekly_payload,
+          );
+        case "generate_weekly_analysis_prompt":
+          return runValidated(
+            GenerateWeeklyPromptSchema,
+            rawArgs,
+            tool_generate_weekly_analysis_prompt,
+          );
+        case "finalize_weekly_dashboard":
+          return runValidated(
+            FinalizeWeeklySchema,
+            rawArgs,
+            tool_finalize_weekly_dashboard,
           );
         case "prepare_daily_dashboard":
           return runValidated(
@@ -966,7 +1073,9 @@ export function createServer(deps: ServerDeps = {}): {
       list_accounts: tool_list_accounts,
       fetch_raw_data: tool_fetch_raw_data,
       generate_report: tool_generate_report,
-      prepare_weekly_dashboard: tool_prepare_weekly_dashboard,
+      prepare_weekly_payload: tool_prepare_weekly_payload,
+      generate_weekly_analysis_prompt: tool_generate_weekly_analysis_prompt,
+      finalize_weekly_dashboard: tool_finalize_weekly_dashboard,
       prepare_daily_dashboard: tool_prepare_daily_dashboard,
     },
   };

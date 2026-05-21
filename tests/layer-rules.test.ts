@@ -10,7 +10,6 @@ describe("Layer rules: L4 config has zero node:fs imports", () => {
   const L4_FILES = [
     "src/config/credentials.ts",
     "src/config/account-store.ts",
-    "src/config/anthropic-credentials.ts", // v1.6
     "src/config/client-mappings.ts", // v1.6
   ];
 

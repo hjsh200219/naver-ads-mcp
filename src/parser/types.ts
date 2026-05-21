@@ -56,7 +56,7 @@ export const MediaBlockSchema = z
   .strict();
 export type MediaBlock = z.infer<typeof MediaBlockSchema>;
 
-/** The full payload sent to Anthropic. Sourced from precompute-kpi.ts. */
+/** The full payload sent to the host LLM. Sourced from precompute-kpi.ts. */
 export const PrecomputedPayloadSchema = z
   .object({
     advertiser: z.string(),

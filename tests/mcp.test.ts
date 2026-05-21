@@ -84,19 +84,21 @@ describe("createServer", () => {
     expect(tools).toBeDefined();
   });
 
-  it("exposes exactly 7 tools (Phase 3.5 added prepare_daily_dashboard)", () => {
+  it("exposes exactly 9 tools (weekly dashboard split into 3 stages)", () => {
     const { tools } = createServer({
       credentialLoader: mockLoader,
       client: mockClient,
     });
     const toolNames = Object.keys(tools);
-    expect(toolNames).toHaveLength(7);
+    expect(toolNames).toHaveLength(9);
     expect(toolNames).toContain("validate_credentials");
     expect(toolNames).toContain("list_report_types");
     expect(toolNames).toContain("list_accounts");
     expect(toolNames).toContain("fetch_raw_data");
     expect(toolNames).toContain("generate_report");
-    expect(toolNames).toContain("prepare_weekly_dashboard");
+    expect(toolNames).toContain("prepare_weekly_payload");
+    expect(toolNames).toContain("generate_weekly_analysis_prompt");
+    expect(toolNames).toContain("finalize_weekly_dashboard");
     expect(toolNames).toContain("prepare_daily_dashboard");
   });
 });

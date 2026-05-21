@@ -138,6 +138,8 @@ npm start
 
 표준입출력(stdio) 위에서 MCP 서버가 동작합니다.
 
+운영 서버는 한국 날짜/주차 기준으로 동작해야 하므로 `TZ=Asia/Seoul`로 실행합니다. CLI는 `TZ`가 비어 있으면 자동으로 `Asia/Seoul`을 기본값으로 설정하지만, systemd/PM2/launchd 등 배포 환경에도 명시하는 것을 권장합니다.
+
 ### Claude Code에 MCP 서버로 등록
 
 `~/.claude/settings.json` 또는 `.claude/settings.local.json`의 `mcpServers` 항목에 추가:
@@ -149,6 +151,7 @@ npm start
       "command": "node",
       "args": ["/absolute/path/to/naver-ads-mcp/dist/cli.js"],
       "env": {
+        "TZ": "Asia/Seoul",
         "NAVER_ADS_CUSTOMER_ID": "...",
         "NAVER_ADS_ACCESS_LICENSE": "...",
         "NAVER_ADS_SECRET_KEY": "..."
@@ -185,14 +188,17 @@ npm start
 
 모든 도구는 선택적 `account?: string` 인자를 받습니다. 미지정 시 `accounts.json`의 `default` 광고주 (또는 legacy `.env`의 `default`) 사용.
 
-| 도구                        | 인자                                                                                      | 반환                                                                                                                |
-| --------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `validate_credentials`      | `{account?}`                                                                              | `{ok, message}` — 자격증명 유효성 검증                                                                              |
-| `fetch_raw_data`            | `{account?, reportTp, startDate(YYYYMMDD), endDate(YYYYMMDD)}`                            | `{rows, count, reportTp}`                                                                                           |
-| `generate_report`           | `{account?, startDate, endDate, outputPath}`                                              | `{path, sheetNames, visibility, rowCount}` — 10시트 xlsx 생성                                                       |
-| `prepare_weekly_dashboard`† | `{client, week, xlsxPath?, targetWeekLabel?, compareWeekLabel?, revisions?, correction?}` | `{artifact_html, html_path, xlsx_path, payload_hash, data_warnings}` — AE 검토용 artifact + 광고주 발송용 html/xlsx |
+| 도구                               | 인자                                                                       | 반환                                                                             |
+| ---------------------------------- | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `validate_credentials`             | `{account?}`                                                               | `{ok, message}` — 자격증명 유효성 검증                                           |
+| `fetch_raw_data`                   | `{account?, reportTp, startDate(YYYYMMDD), endDate(YYYYMMDD)}`             | `{rows, count, reportTp}`                                                        |
+| `generate_report`                  | `{account?, startDate, endDate, outputPath}`                               | `{path, sheetNames, visibility, rowCount}` — 10시트 xlsx 생성                    |
+| `prepare_weekly_payload`†          | `{account?, client, week, xlsxPath?, targetWeekLabel?, compareWeekLabel?}` | `{payload, payload_summary_md}` — Stage 1/3                                      |
+| `generate_weekly_analysis_prompt`† | `{payload}`                                                                | `{system_prompt, user_prompt, expected_schema}` — Stage 2/3                      |
+| `finalize_weekly_dashboard`†       | `{account?, client, week, payload, ai_analysis, correction?}`              | `{artifact_html, html_path, xlsx_path, payload_hash, data_warnings}` — Stage 3/3 |
+| `prepare_daily_dashboard`          | `{date}`                                                                   | `{date, violations, summary, data_warnings}` — 일별 KPI 임계치 점검 (Phase 3.5)  |
 
-† v1.6 추가. AE가 `xlsxPath`(helloMAX form)를 업로드하면 `targetWeekLabel`(예: `"2026-05-04주차"`) + `compareWeekLabel`로 주간 KPI를 집계, Anthropic Claude를 호출해 review/insights/actions 생성, AE 검토용 artifact HTML과 광고주 발송용 html/xlsx 파일 두 개를 `~/.naver-ads-mcp/reports/{client}/{week}.{html|xlsx}`에 저장합니다. AE는 메일 클라이언트에서 그 파일들을 첨부해 광고주에게 직접 발송합니다 (외부 Email MCP 의존 없음). 자세한 흐름과 책임 분리는 `docs/exec-plans/active/weekly-report-automation-plan.md` v1.6을 참조하세요.
+† v1.6 주간 보고서 3-stage 파이프라인. 호출 순서: (1) AE가 `xlsxPath`(helloMAX form) + `targetWeekLabel`(예: `"2026-05-04주차"`) + `compareWeekLabel`을 넘기면 `prepare_weekly_payload`가 PrecomputedPayload와 사람이 읽기 좋은 Markdown 요약을 반환합니다. (2) `generate_weekly_analysis_prompt`는 system/user prompt와 기대 출력 JSON Schema를 반환 — 호스트 Claude가 그 prompt를 직접 실행해 `ai_analysis`(review/insights/actions/confidence/data_warnings)를 생성합니다. (3) `finalize_weekly_dashboard`는 zod로 `ai_analysis`를 검증하고 AE 검토용 artifact HTML + 광고주 발송용 html/xlsx 파일을 `~/.naver-ads-mcp/reports/{client}/{week}.{html|xlsx}`에 저장하고 history JSONL에 1줄 append합니다. AE는 메일 클라이언트에서 그 파일들을 첨부해 광고주에게 직접 발송합니다 (외부 Email MCP 의존 없음). 본 MCP 서버는 Anthropic SDK에 직접 의존하지 않습니다 — 분석은 호스트 LLM이 수행합니다.
 
 ### v1.6 추가 리소스
 

@@ -8,7 +8,6 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import type { AiAnalysis, PrecomputedPayload } from "../src/parser/types.js";
-import type { IAnthropic } from "../src/analyzer/ai-comment.js";
 
 let workDir: string;
 
@@ -132,12 +131,10 @@ const SAMPLE_PAYLOAD: PrecomputedPayload = {
   data_warnings: [],
 };
 
-const mockAnthropic: IAnthropic = {
-  generate: async () => ({
-    content: JSON.stringify(SAMPLE_AI),
-    cache_hit: false,
-  }),
-};
+const stub = {
+  get: async () => ({}),
+  post: async () => ({}),
+} as unknown as Parameters<typeof createServer>[0]["client"];
 
 async function callHandler<T>(
   server: { _requestHandlers: Map<string, unknown> },
@@ -151,16 +148,12 @@ async function callHandler<T>(
   return await handler({ method, params }, {});
 }
 
-describe("US-016 prepare_weekly_dashboard MCP tool", () => {
-  it("is registered in the tool list", async () => {
-    const stub = {
-      get: async () => ({}),
-      post: async () => ({}),
-    } as unknown as Parameters<typeof createServer>[0]["client"];
+describe("weekly dashboard 3-tool pipeline", () => {
+  it("tools/list registers prepare_weekly_payload, generate_weekly_analysis_prompt, finalize_weekly_dashboard", async () => {
     const { server } = createServer({
       client: stub,
-      anthropic: mockAnthropic,
       historyBaseDir: workDir,
+      reportsBaseDir: workDir,
       payloadProvider: async () => SAMPLE_PAYLOAD,
     });
     const out = await callHandler<{ tools: { name: string }[] }>(
@@ -168,25 +161,138 @@ describe("US-016 prepare_weekly_dashboard MCP tool", () => {
       ListToolsRequestSchema.shape.method.value,
     );
     const names = out.tools.map((t) => t.name);
-    expect(names).toContain("prepare_weekly_dashboard");
+    expect(names).toContain("prepare_weekly_payload");
+    expect(names).toContain("generate_weekly_analysis_prompt");
+    expect(names).toContain("finalize_weekly_dashboard");
+    expect(names).not.toContain("prepare_weekly_dashboard");
   });
+});
 
-  it("end-to-end: returns artifact_html + html_path + xlsx_path + payload_hash + data_warnings", async () => {
-    const stub = {
-      get: async () => ({}),
-      post: async () => ({}),
-    } as unknown as Parameters<typeof createServer>[0]["client"];
+describe("prepare_weekly_payload", () => {
+  it("returns payload + payload_summary_md via payloadProvider", async () => {
     const { tools } = createServer({
       client: stub,
-      anthropic: mockAnthropic,
       historyBaseDir: workDir,
+      reportsBaseDir: workDir,
       payloadProvider: async () => SAMPLE_PAYLOAD,
     });
-    const result = await tools.prepare_weekly_dashboard({
+    const r = (await tools.prepare_weekly_payload({
       client: "bishef",
       week: "2026-W17",
+    })) as { payload: PrecomputedPayload; payload_summary_md: string };
+    expect(r.payload.advertiser).toBe("비셰프");
+    expect(r.payload_summary_md).toContain("비셰프");
+    expect(r.payload_summary_md).toContain("ROAS");
+  });
+
+  it("returns payload via xlsx parser path", async () => {
+    const { tools } = createServer({
+      client: stub,
+      historyBaseDir: workDir,
+      reportsBaseDir: workDir,
     });
-    const r = result as {
+    const xlsxPath = path.resolve(
+      "tests/fixtures/anonymized/client-a-form.xlsx",
+    );
+    const r = (await tools.prepare_weekly_payload({
+      client: "client-a",
+      week: "2026-W18",
+      xlsxPath,
+      targetWeekLabel: "2026-05-04주차",
+      compareWeekLabel: "2026-04-27주차",
+    })) as { payload: PrecomputedPayload };
+    expect(r.payload.advertiser).toBe("client-a");
+  });
+
+  it("rejects when neither payloadProvider nor xlsxPath args are provided", async () => {
+    const { tools } = createServer({
+      client: stub,
+      historyBaseDir: workDir,
+      reportsBaseDir: workDir,
+    });
+    await expect(
+      tools.prepare_weekly_payload({ client: "bishef", week: "2026-W17" }),
+    ).rejects.toThrow();
+  });
+
+  it("propagates data_warnings inside the payload", async () => {
+    const warned: PrecomputedPayload = {
+      ...SAMPLE_PAYLOAD,
+      data_warnings: ["브랜드검색 영역별 성과: Naver API 미제공"],
+    };
+    const { tools } = createServer({
+      client: stub,
+      historyBaseDir: workDir,
+      reportsBaseDir: workDir,
+      payloadProvider: async () => warned,
+    });
+    const r = (await tools.prepare_weekly_payload({
+      client: "bishef",
+      week: "2026-W17",
+    })) as { payload: PrecomputedPayload; payload_summary_md: string };
+    expect(r.payload.data_warnings).toContain(
+      "브랜드검색 영역별 성과: Naver API 미제공",
+    );
+    expect(r.payload_summary_md).toContain("데이터 경고");
+  });
+});
+
+describe("generate_weekly_analysis_prompt", () => {
+  it("returns system_prompt, user_prompt, expected_schema", async () => {
+    const { tools } = createServer({
+      client: stub,
+      historyBaseDir: workDir,
+      reportsBaseDir: workDir,
+    });
+    const r = (await tools.generate_weekly_analysis_prompt({
+      payload: SAMPLE_PAYLOAD,
+    })) as {
+      system_prompt: string;
+      user_prompt: string;
+      expected_schema: Record<string, unknown>;
+    };
+    expect(r.system_prompt).toContain("네이버 검색광고");
+    expect(JSON.parse(r.user_prompt).advertiser).toBe("비셰프");
+    expect(r.expected_schema.type).toBe("object");
+    expect((r.expected_schema as { required: string[] }).required).toContain(
+      "review_text",
+    );
+  });
+
+  it("rejects malformed payload via zod", async () => {
+    const { server } = createServer({
+      client: stub,
+      historyBaseDir: workDir,
+      reportsBaseDir: workDir,
+    });
+    const out = await callHandler<{
+      content: Array<{ text: string }>;
+      isError?: boolean;
+    }>(
+      server as unknown as { _requestHandlers: Map<string, unknown> },
+      CallToolRequestSchema.shape.method.value,
+      {
+        name: "generate_weekly_analysis_prompt",
+        arguments: { payload: { advertiser: "x" } },
+      },
+    );
+    expect(out.isError).toBe(true);
+  });
+});
+
+describe("finalize_weekly_dashboard", () => {
+  it("writes html + xlsx + history and returns artifact_html + payload_hash", async () => {
+    const { tools } = createServer({
+      client: stub,
+      historyBaseDir: workDir,
+      reportsBaseDir: workDir,
+    });
+    const r = (await tools.finalize_weekly_dashboard({
+      client: "bishef",
+      week: "2026-W17",
+      payload: SAMPLE_PAYLOAD,
+      ai_analysis: SAMPLE_AI,
+    })) as {
       artifact_html: string;
       html_path: string;
       xlsx_path: string;
@@ -197,24 +303,7 @@ describe("US-016 prepare_weekly_dashboard MCP tool", () => {
     expect(existsSync(r.html_path)).toBe(true);
     expect(existsSync(r.xlsx_path)).toBe(true);
     expect(r.payload_hash).toMatch(/^[0-9a-f]{64}$/);
-    expect(r.data_warnings).toBeDefined();
-  });
 
-  it("appends a history JSONL entry per prepare call", async () => {
-    const stub = {
-      get: async () => ({}),
-      post: async () => ({}),
-    } as unknown as Parameters<typeof createServer>[0]["client"];
-    const { tools } = createServer({
-      client: stub,
-      anthropic: mockAnthropic,
-      historyBaseDir: workDir,
-      payloadProvider: async () => SAMPLE_PAYLOAD,
-    });
-    await tools.prepare_weekly_dashboard({
-      client: "bishef",
-      week: "2026-W17",
-    });
     const { readHistory } = await import("../src/runtime/history.js");
     const entries = await readHistory({
       baseDir: workDir,
@@ -223,20 +312,51 @@ describe("US-016 prepare_weekly_dashboard MCP tool", () => {
     });
     expect(entries).toHaveLength(1);
     expect(entries[0].status).toBe("prepared");
-    expect(entries[0].html_path).toMatch(/\.html$/);
-    expect(entries[0].xlsx_path).toMatch(/\.xlsx$/);
   });
 
-  it("rejects malformed args via zod", async () => {
-    const stub = {
-      get: async () => ({}),
-      post: async () => ({}),
-    } as unknown as Parameters<typeof createServer>[0]["client"];
+  it("status becomes corrected_prepared when correction=true", async () => {
+    const { tools } = createServer({
+      client: stub,
+      historyBaseDir: workDir,
+      reportsBaseDir: workDir,
+    });
+    await tools.finalize_weekly_dashboard({
+      client: "bishef",
+      week: "2026-W17",
+      payload: SAMPLE_PAYLOAD,
+      ai_analysis: SAMPLE_AI,
+      correction: true,
+    });
+    const { readHistory } = await import("../src/runtime/history.js");
+    const entries = await readHistory({
+      baseDir: workDir,
+      client: "bishef",
+      week: "2026-W17",
+    });
+    expect(entries[0].status).toBe("corrected_prepared");
+  });
+
+  it("merges payload.data_warnings and ai_analysis.data_warnings", async () => {
+    const { tools } = createServer({
+      client: stub,
+      historyBaseDir: workDir,
+      reportsBaseDir: workDir,
+    });
+    const r = (await tools.finalize_weekly_dashboard({
+      client: "bishef",
+      week: "2026-W17",
+      payload: { ...SAMPLE_PAYLOAD, data_warnings: ["payload-warn"] },
+      ai_analysis: { ...SAMPLE_AI, data_warnings: ["ai-warn"] },
+    })) as { data_warnings: string[] };
+    expect(r.data_warnings).toContain("payload-warn");
+    expect(r.data_warnings).toContain("ai-warn");
+  });
+
+  it("rejects when ai_analysis is missing required fields", async () => {
     const { server } = createServer({
       client: stub,
-      anthropic: mockAnthropic,
       historyBaseDir: workDir,
-      payloadProvider: async () => SAMPLE_PAYLOAD,
+      reportsBaseDir: workDir,
     });
     const out = await callHandler<{
       content: Array<{ text: string }>;
@@ -245,103 +365,40 @@ describe("US-016 prepare_weekly_dashboard MCP tool", () => {
       server as unknown as { _requestHandlers: Map<string, unknown> },
       CallToolRequestSchema.shape.method.value,
       {
-        name: "prepare_weekly_dashboard",
-        arguments: { client: "Bad_Client", week: "2026-W17" },
+        name: "finalize_weekly_dashboard",
+        arguments: {
+          client: "bishef",
+          week: "2026-W17",
+          payload: SAMPLE_PAYLOAD,
+          ai_analysis: { review_text: "x" },
+        },
       },
     );
     expect(out.isError).toBe(true);
   });
 
-  it("includes data_warnings from payload in the result", async () => {
-    const warnedPayload: PrecomputedPayload = {
-      ...SAMPLE_PAYLOAD,
-      data_warnings: ["브랜드검색 영역별 성과: Naver API 미제공"],
-    };
-    const stub = {
-      get: async () => ({}),
-      post: async () => ({}),
-    } as unknown as Parameters<typeof createServer>[0]["client"];
-    const { tools } = createServer({
+  it("rejects malformed client id via zod", async () => {
+    const { server } = createServer({
       client: stub,
-      anthropic: mockAnthropic,
       historyBaseDir: workDir,
-      payloadProvider: async () => warnedPayload,
+      reportsBaseDir: workDir,
     });
-    const result = (await tools.prepare_weekly_dashboard({
-      client: "bishef",
-      week: "2026-W17",
-    })) as { data_warnings: string[] };
-    expect(result.data_warnings).toContain(
-      "브랜드검색 영역별 성과: Naver API 미제공",
+    const out = await callHandler<{
+      content: Array<{ text: string }>;
+      isError?: boolean;
+    }>(
+      server as unknown as { _requestHandlers: Map<string, unknown> },
+      CallToolRequestSchema.shape.method.value,
+      {
+        name: "finalize_weekly_dashboard",
+        arguments: {
+          client: "Bad_Client",
+          week: "2026-W17",
+          payload: SAMPLE_PAYLOAD,
+          ai_analysis: SAMPLE_AI,
+        },
+      },
     );
-  });
-
-  it("end-to-end via xlsx parser path (no payloadProvider): xlsxPath + targetWeekLabel + compareWeekLabel", async () => {
-    const stub = {
-      get: async () => ({}),
-      post: async () => ({}),
-    } as unknown as Parameters<typeof createServer>[0]["client"];
-    const { tools } = createServer({
-      client: stub,
-      anthropic: mockAnthropic,
-      historyBaseDir: workDir,
-      reportsBaseDir: workDir,
-      // No payloadProvider — exercises the parser path
-    });
-    const xlsxPath = path.resolve(
-      "tests/fixtures/anonymized/client-a-form.xlsx",
-    );
-    const result = (await tools.prepare_weekly_dashboard({
-      client: "client-a",
-      week: "2026-W18",
-      xlsxPath,
-      targetWeekLabel: "2026-05-04주차",
-      compareWeekLabel: "2026-04-27주차",
-    })) as { html_path: string; xlsx_path: string; payload_hash: string };
-    expect(existsSync(result.html_path)).toBe(true);
-    expect(existsSync(result.xlsx_path)).toBe(true);
-    expect(result.payload_hash).toMatch(/^[0-9a-f]{64}$/);
-  });
-
-  it("rejects when neither payloadProvider nor xlsxPath args are provided", async () => {
-    const stub = {
-      get: async () => ({}),
-      post: async () => ({}),
-    } as unknown as Parameters<typeof createServer>[0]["client"];
-    const { tools } = createServer({
-      client: stub,
-      anthropic: mockAnthropic,
-      historyBaseDir: workDir,
-      reportsBaseDir: workDir,
-    });
-    await expect(
-      tools.prepare_weekly_dashboard({ client: "bishef", week: "2026-W17" }),
-    ).rejects.toThrow();
-  });
-
-  it("anthropicFactory path: lazy construction at first tool use (cli.ts wiring smoke)", async () => {
-    const stub = {
-      get: async () => ({}),
-      post: async () => ({}),
-    } as unknown as Parameters<typeof createServer>[0]["client"];
-    let factoryCalls = 0;
-    const factory = (): IAnthropic => {
-      factoryCalls++;
-      return mockAnthropic;
-    };
-    const { tools } = createServer({
-      client: stub,
-      anthropicFactory: factory,
-      historyBaseDir: workDir,
-      reportsBaseDir: workDir,
-      payloadProvider: async () => SAMPLE_PAYLOAD,
-    });
-    // No factory call at boot
-    expect(factoryCalls).toBe(0);
-    await tools.prepare_weekly_dashboard({
-      client: "bishef",
-      week: "2026-W17",
-    });
-    expect(factoryCalls).toBe(1);
+    expect(out.isError).toBe(true);
   });
 });
