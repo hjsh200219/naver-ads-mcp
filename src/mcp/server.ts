@@ -1064,7 +1064,7 @@ export function createServer(deps: ServerDeps = {}): {
       {
         name: "generate_report",
         description:
-          "Generate a full 10-sheet Excel report (.xlsx) for a date range. RECOMMENDED: omit outputPath — file is saved to ./reports/<account>/<account>_<startDate>_<endDate>.xlsx on the MCP server host machine. IMPORTANT: outputPath must be an absolute path on the MCP server host (not the calling LLM's sandbox like /home/claude or /mnt/user-data). When omitted, the default reports/ directory is auto-created.",
+          "Generate a full 10-sheet Excel report (.xlsx) for a date range — raw audit dump (SUMMARY / 매체/키워드/상품/검색어 성과 / 브랜드검색 hidden / 4 RAW sheets). NO AI analysis, NO html dashboard. Use this for raw data audit. For 광고주 발송용 weekly dashboard with AI analysis use the 3-tool weekly pipeline (prepare_weekly_payload → generate_weekly_analysis_prompt → finalize_weekly_dashboard). WHEN A USER SAYS '리포트 생성' OR 'GENERATE REPORT' AMBIGUOUSLY, ASK THEM FIRST which kind they want: (1) generate_report (raw 10-sheet audit, fast) or (2) weekly pipeline (KPI summary + AI analysis + html artifact, AE preview). RECOMMENDED: omit outputPath — file is saved to ./reports/<account>/<account>_<startDate>_<endDate>.xlsx on the MCP server host machine. IMPORTANT: outputPath must be an absolute path on the MCP server host (not the calling LLM's sandbox like /home/claude or /mnt/user-data). When omitted, the default reports/ directory is auto-created.",
         inputSchema: {
           type: "object",
           properties: {
@@ -1137,7 +1137,7 @@ export function createServer(deps: ServerDeps = {}): {
       {
         name: "finalize_weekly_dashboard",
         description:
-          "Stage 3/3 of the weekly report pipeline. Validates the host-provided AiAnalysis, renders 광고주 발송용 html/xlsx + AE preview artifact, appends a history entry, and returns the file paths and payload_hash. Files are ALWAYS saved on the MCP server host at ./reports/<client>/<client>_<week>.{html,xlsx} (not the caller's sandbox). The returned html_path/xlsx_path are host-machine paths the AE opens locally.",
+          "Stage 3/3 of the weekly report pipeline. Validates the host-provided AiAnalysis, renders 광고주 발송용 html/xlsx + AE preview artifact, appends a history entry, and returns the file paths and payload_hash. Files are ALWAYS saved on the MCP server host at ./reports/<client>/<client>_<week>.{html,xlsx} (not the caller's sandbox). The returned html_path/xlsx_path are host-machine paths the AE opens locally. IMPORTANT FOR CLAUDE DESKTOP: render the returned `artifact_html` (a complete standalone HTML document) as a Claude artifact with type=text/html so the AE can preview the report inline before sending. Do NOT paste the raw HTML into chat text.",
         inputSchema: {
           type: "object",
           properties: {

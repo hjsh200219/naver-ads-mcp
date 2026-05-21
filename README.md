@@ -228,6 +228,28 @@ AE는 메일 클라이언트에서 그 파일들을 첨부해 광고주에게 �
 
 > `./reports/`는 `.gitignore`에 등록 (커밋 금지). `reportsBaseDir`을 ServerDeps로 주입해 위치 변경 가능.
 
+## 리포트 선택 가이드 (호스트 LLM용)
+
+사용자가 "리포트 생성"이라고만 요청하면 두 옵션이 모호하므로 **반드시 사용자에게 어느 쪽인지 먼저 묻는다**:
+
+| 옵션                            | 시트/내용                         | 용도                             | AI 분석                     |
+| ------------------------------- | --------------------------------- | -------------------------------- | --------------------------- |
+| **A. `generate_report`**        | 10시트 raw audit xlsx             | AE 내부 audit / 원시 데이터 확인 | ❌                          |
+| **B. weekly 3-tool 파이프라인** | 3시트 발송용 xlsx + html artifact | 광고주 발송용 주간 대시보드      | ✅ (호스트 LLM이 직접 분석) |
+
+호스트 LLM 권장 응답 예:
+
+> "어떤 리포트 생성하시겠어요?
+>
+> 1. **Raw audit 엑셀** (10시트, 원시 데이터, 즉시 생성) — `generate_report`
+> 2. **주간 대시보드** (KPI 요약 + AI 분석 + 광고주 발송용 html/xlsx) — weekly 3-stage 파이프라인"
+
+## Artifact 렌더링 (Claude Desktop)
+
+`finalize_weekly_dashboard` 결과의 `artifact_html` 필드는 **완성된 standalone HTML 문서**. Claude Desktop은 이 값을 채팅 텍스트로 paste하지 말고 **`type=text/html` artifact UI**로 렌더링한다 (AE preview 용).
+
+`html_path` / `xlsx_path`는 호스트 머신 경로 — AE가 로컬 Finder/Explorer로 열어 광고주에게 첨부 발송.
+
 ## 사용 예 (Claude Desktop)
 
 ```jsonc
