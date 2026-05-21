@@ -38,3 +38,5 @@
 - [korean-output-style.md](korean-output-style.md) — 사용자 응답 스타일 선호
 - [ralplan-codex-consensus-pattern.md](ralplan-codex-consensus-pattern.md) — ralplan 4 라운드 + Codex adversarial 외부 challenge로 같은-패밀리 합의의 blind spot 보완
 - [prd-vs-impl-drift-clean-path-test.md](prd-vs-impl-drift-clean-path-test.md) — PRD가 "per X 1건" 카디널리티 명시하면 clean-path 카운트도 회귀 테스트로 단언 (breach-path만 검증 시 drift)
+- [weekly-live-api-path.md](weekly-live-api-path.md) — prepare_weekly_payload는 xlsxPath 없이 ISO week만으로 자동 실행 가능 (live API fallback path)
+- [reports-path-convention.md](reports-path-convention.md) — generate_report 기본 출력 경로 + weekly/daily 파일명 규칙 통일 (./reports/<account>/ 구조)

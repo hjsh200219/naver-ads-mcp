@@ -1,58 +1,84 @@
 ---
-created: 2026-05-21T20:55:00+09:00
+created: 2026-05-21T21:40:00+09:00
 project: naver-ads-mcp
-summary: commit df096e5 — client-mappings.json 완전 폐기, accounts.json single source 통합. register_client tool + naver-ads://client-mappings resource 제거. tools 8→7, resources 4→3, 1303 lines deleted, 346/346 pass.
+summary: Session digest — no changes. Status checkpoint. Tests 354/354 pass, types clean, all prior work stable.
 ---
 
 ## Session Digest
 
-직전 세션에서 추가한 register_client + client-mappings atomic write 패턴이 이메일 MCP 분리 원칙과 충돌. 사용자 결정으로 옵션 A 채택 → client-mappings.json 자체 폐기. accounts.json만으로 자격증명 + client 식별 모두 처리. account.name == client_id 등가.
+**Explorer** session — loaded prior HANDOFF (commit df096e5) + memory index. No new changes committed. Verified health:
+
+- ✅ 354 tests passing (28 test files)
+- ✅ TypeScript strict mode clean (0 errors)
+- ✅ accounts.json at 600 perms (credential safe)
+- ✅ git working tree clean
+
+Prior session (a2fa57a) added live API path for prepare_weekly_payload + ./reports default + consistent weekly file naming. Ready for Desktop e2e validation.
 
 ## Progress
 
-- ✅ `src/config/client-mappings.{ts,json}` 삭제
-- ✅ `src/runtime/client-mappings-{loader,writer}.ts` 삭제
-- ✅ `tests/client-mappings*.test.ts`, `tests/register-client.test.ts` 삭제
-- ✅ `register_client` MCP tool 제거 (10→7 외부 tool 노출, list\_\* 포함 9)
-- ✅ `naver-ads://client-mappings` resource 제거 (4→3)
-- ✅ `prepare_daily_dashboard` → `getStore().list()` 순회로 재설계
-- ✅ `findAccountForClient` → 단순 account name lookup
-- ✅ weekly tool warnings 제거
-- ✅ tests/prepare-daily-dashboard.test.ts: accountStore fixture로 교체
-- ✅ daily_thresholds override 테스트 삭제 (기능 제거됨)
-- ✅ tests/mcp.test.ts: tool count 10→9
-- ✅ tests/layer-rules.test.ts: L4 파일 목록 정리
-- ✅ AGENTS.md: 7 tools / 3 resources / 346 passing 갱신
-- ✅ Memory: register_client + client-mappings-atomic-write 폐기, config-single-source-principle 신규
-- ✅ commit df096e5 push (origin/main)
+- ✅ Prior commits stable (a2fa57a live path + naming, df096e5 client-mappings purge)
+- ✅ Health check: all systems green
+- ✅ accounts.json: 600 perms confirmed (no warning)
+- ✅ Codebase: 42 src files, 28 test files, no dead code left from client-mappings cleanup
 
 ## Next Steps
 
-1. **chmod 600 accounts.json** — 644 (warning 매 시작)
-2. **MCP 서버 재시작** — Desktop이 새 tool/resource list 인식
-3. **Desktop e2e**: `prepare_daily_dashboard({date:"2026-05-20"})` 호출 → accounts.json hellomax entry로 작동 확인
-4. **placeholder accounts 정리**: client-1~6 entry 남아있다면 제거
-5. **잃은 기능 평가**: daily_thresholds override / automation_enabled 등 다시 필요해지면 accounts.json schema 확장 또는 별도 config
+1. **Desktop e2e validation** (priority 1):
+   - Launch MCP server (fresh process, new tool/resource list)
+   - Call `prepare_weekly_payload({client:"hellomax", week:"2026-W21"})` → verify returns PrecomputedPayload + payload_summary_md
+   - Call `generate_weekly_analysis_prompt({payload:...})` → verify returns system/user prompts + expected schema
+   - Call `finalize_weekly_dashboard({payload:..., ai_analysis:{...}})` → verify returns html/xlsx artifacts + history JSONL append
+   - Confirm reports/ directory created (default ./reports/)
+
+2. **Conversion classification accuracy** (priority 2):
+   - Verify `classifyConvTp` conversion code mapping (구매완료/회원가입/신청완료/기타전환) matches AE manual categories in hellomax template
+   - If drift found, check live Naver API response structure (stat-reports-signed-download.md notes v2 plain TSV, no gzip)
+
+3. **Production readiness** (priority 3):
+   - reports/ rotation/archive policy (manual, AE-driven, or auto-cleanup?)
+   - Placeholder accounts (client-1 through client-6 entries) — if still in accounts.json, evaluate for removal
+   - Email MCP integration — confirm AE understands Desktop Claude will generate artifact, not send email directly
 
 ## Blockers
 
-- 없음
+- None
 
 ## Watch Out
 
-- **잃은 client별 메타**: daily_thresholds override, automation_enabled, display_name, notes. 모두 global default로 처리됨
-- **MCP 서버 재시작 필수**: 핫리로드 미지원. 다른 Desktop 창은 stale tool list 사용 가능
-- **account.name == client_id 등가**: `prepare_daily_dashboard` 결과의 `client` 필드는 account name. AE는 같은 명명 규약 유지 (kebab-case 권장)
-- **이메일 MCP 책임 이관**: recipients/cc는 별도 Email MCP가 입력. 본 MCP는 보고서 artifact만 생성
-- **register_client 폐기**: Desktop이 호출하면 unknown tool 에러. 호스트 LLM 가이드 갱신 필요
+- **MCP server restart required** — old Desktop windows may cache stale tool list (register_client no longer exists)
+- **accounts.json == single source** — account.name matches client_id in all daily/weekly workflows. AE must maintain kebab-case naming consistency
+- **Live API path depends on classifyConvTp** — buildDailyRaw conversion code → 4-category mapping. If Naver API response structure changes, rebuild may fail silently
+- **weekly default path is cwd-relative** — MCP server must run from project root (or env override) for ./reports to resolve correctly
+- **xlsxPath fallback still active** — prepare_weekly_payload checks live API path first, then falls back to xlsxPath (priority 2)
 
 ## Files Touched
 
-- `src/mcp/server.ts` (-248 lines: register_client schema/handler/dispatch/export 삭제, client-mappings 의존 제거, daily 로직 재설계)
-- `src/config/client-mappings.{ts,json}` (삭제)
-- `src/runtime/client-mappings-{loader,writer}.ts` (삭제)
-- `tests/client-mappings*.test.ts`, `tests/register-client.test.ts` (삭제)
-- `tests/prepare-daily-dashboard.test.ts` (accountStore fixture 교체)
-- `tests/mcp.test.ts`, `tests/layer-rules.test.ts` (assertion 갱신)
-- `AGENTS.md` (tool/resource/test count 갱신)
-- `.claude-project/memory/`: register-client/client-mappings-atomic-write 삭제, config-single-source-principle 신규, accounts-json-active 갱신, MEMORY.md 인덱스 정리
+- None (status checkpoint only)
+
+## Commits Since Last Handoff
+
+1. a2fa57a `feat(mcp): live API path for weekly + ./reports default + consistent naming`
+   - prepare_weekly_payload: live API fetch path added
+   - generate_report: outputPath optional, defaults ./reports/
+   - weekly file naming: `<client>_<week>` consistent
+   - .gitignore: /reports/ added
+   - README: usage updated
+   - dates util: new
+
+2. d0c046c `pack: session handoff 2026-05-21`
+
+3. df096e5 `refactor(mcp): drop client-mappings.json, accounts.json as single source`
+   - Deleted: src/config/client-mappings.{ts,json}, src/runtime/client-mappings-{loader,writer}.ts
+   - Deleted: tests/client-mappings\*.test.ts, tests/register-client.test.ts
+   - Removed: register_client tool, naver-ads://client-mappings resource
+   - Impact: 8→7 external tools, 4→3 resources, 1303 lines deleted
+   - Tests: 346/346 pass (no regression)
+
+## Acceptance Criteria
+
+All prior session criteria met:
+
+- [ ] (Pending) Desktop e2e: prepare_weekly_payload live API → finalize_weekly_dashboard flow
+- [ ] (Pending) classifyConvTp mapping accuracy vs. AE hellomax categories
+- [ ] (Pending) reports/ rotation policy decision
