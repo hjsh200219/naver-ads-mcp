@@ -24,14 +24,13 @@
 - [stat-report-column-spec.md](stat-report-column-spec.md) — stat-report v2 reportTp별 column 순서 (5/10 검증: AD, AD_DETAIL, AD_CONVERSION, AD_CONVERSION_DETAIL, EXPKEYWORD). /stats cross-check 완료
 - [account-store-getstore-not-snapshot.md](account-store-getstore-not-snapshot.md) — 자격증명 조회는 getStore() lazy resolve 필수. deps.accountStore 직접 캡처는 env-only mode 침묵 실패
 - [weekly-dashboard-3tool-flow.md](weekly-dashboard-3tool-flow.md) — prepare_weekly_dashboard → 3-tool 분리 (prepare_weekly_payload + generate_weekly_analysis_prompt + finalize_weekly_dashboard). Anthropic 의존성 제거, host Claude가 분석 담당
-- [register-client-tool-pattern.md](register-client-tool-pattern.md) — register_client tool이 accounts.json(자격증명) ↔ client-mappings.json(보고서 메타) 사이를 연결. customer_id 자동 추출
-- [client-mappings-atomic-write.md](client-mappings-atomic-write.md) — client-mappings.json atomic write 패턴 (advisory lock + temp+rename + schema validate)
+- [config-single-source-principle.md](config-single-source-principle.md) — 단일 소스 결정 (accounts.json) + trade-off 명시 (commit df096e5, client-mappings.json 폐기)
 
 ## Reference
 
 - [github-repo.md](github-repo.md) — GitHub repo 위치 + visibility + 주요 commits
 - [omc-state-cleanup.md](omc-state-cleanup.md) — Stop hook이 ralph 재시작 시도 시 대응법
-- [accounts-json-active.md](accounts-json-active.md) — accounts.json 단일 자격증명 소스 운영 (.env 제거됨)
+- [accounts-json-active.md](accounts-json-active.md) — accounts.json 단일 자격증명 + 클라이언트 식별 소스 운영 (client-mappings.json 폐기됨)
 - [mcp-1mb-response-limit.md](mcp-1mb-response-limit.md) — MCP transport 응답 1MB 제한. outputPath/summarize/limit 패턴 대응
 
 ## Feedback

@@ -1,35 +1,38 @@
 ---
-created: 2026-05-21T20:30:00+09:00
+created: 2026-05-21T20:55:00+09:00
 project: naver-ads-mcp
-summary: commit 42bce5b — register_client tool 신규 + fetch_raw_data 1MB-safe 옵션 (outputPath/summarize/limit). client-mappings.json atomic write + customer_id auto-fill. tools 7→8, 394/394 pass.
+summary: commit df096e5 — client-mappings.json 완전 폐기, accounts.json single source 통합. register_client tool + naver-ads://client-mappings resource 제거. tools 8→7, resources 4→3, 1303 lines deleted, 346/346 pass.
 ---
 
 ## Session Digest
 
-다른 Claude Desktop 세션에서 "hellomax 미등록" 진단 오류 → 실제 원인은 accounts.json은 OK, **client-mappings.json에 hellomax entry 없음**. weekly/daily tool은 두 store 모두 필요한 구조였음.
-
-해결: `register_client` MCP tool 신규. accounts.json에서 `customer_id` 자동 추출 + atomic upsert. 별도로 Desktop에서 `fetch_raw_data` 1MB 초과 에러 보고 → `outputPath` / `summarize` / `limit` 옵션 + 자동 가드 추가.
+직전 세션에서 추가한 register_client + client-mappings atomic write 패턴이 이메일 MCP 분리 원칙과 충돌. 사용자 결정으로 옵션 A 채택 → client-mappings.json 자체 폐기. accounts.json만으로 자격증명 + client 식별 모두 처리. account.name == client_id 등가.
 
 ## Progress
 
-- ✅ `src/runtime/client-mappings-writer.ts` 신규 — atomic write + advisory lock + schema validate
-- ✅ `register_client` MCP tool — customer_id auto-fill, overwrite 지원, 캐시 invalidate
-- ✅ `fetch_raw_data` 옵션: `outputPath` / `summarize` / `limit` + >900KB 자동 hint
-- ✅ `prepare_weekly_payload` warnings 필드 — 미등록 client_id 안내
-- ✅ `finalize_weekly_dashboard` data_warnings에 동일 안내 merge
-- ✅ 신규 테스트 18개 (writer 9 + register-client 9 + fetch_raw_data 3)
-- ✅ typecheck 0, vitest 394/394, build OK
-- ✅ commit 42bce5b push (origin/main)
-- ✅ AGENTS.md: tool 7→8 + test 388→394 갱신
-- ✅ Memory 3건 신규 저장
+- ✅ `src/config/client-mappings.{ts,json}` 삭제
+- ✅ `src/runtime/client-mappings-{loader,writer}.ts` 삭제
+- ✅ `tests/client-mappings*.test.ts`, `tests/register-client.test.ts` 삭제
+- ✅ `register_client` MCP tool 제거 (10→7 외부 tool 노출, list\_\* 포함 9)
+- ✅ `naver-ads://client-mappings` resource 제거 (4→3)
+- ✅ `prepare_daily_dashboard` → `getStore().list()` 순회로 재설계
+- ✅ `findAccountForClient` → 단순 account name lookup
+- ✅ weekly tool warnings 제거
+- ✅ tests/prepare-daily-dashboard.test.ts: accountStore fixture로 교체
+- ✅ daily_thresholds override 테스트 삭제 (기능 제거됨)
+- ✅ tests/mcp.test.ts: tool count 10→9
+- ✅ tests/layer-rules.test.ts: L4 파일 목록 정리
+- ✅ AGENTS.md: 7 tools / 3 resources / 346 passing 갱신
+- ✅ Memory: register_client + client-mappings-atomic-write 폐기, config-single-source-principle 신규
+- ✅ commit df096e5 push (origin/main)
 
 ## Next Steps
 
-1. **hellomax 실제 등록** — Claude Desktop에서 `register_client({client_id:"hellomax", recipients:["..."]})` 호출 (recipients = AE/광고주 메일, 별도 확인 필요)
-2. **chmod 600 accounts.json** — 현재 644 (MCP 서버 매번 warning). 변경 후 서버 재시작
-3. **placeholder client-1~6 정리** — TBD entry 제거 여부 결정 (현재 6건 자리만 차지)
-4. **Claude Desktop e2e 검증** — register_client 호출 → prepare_weekly_payload → finalize → 발송 흐름 통과 확인
-5. **fetch_raw_data 활용** — 큰 raw fetch는 `outputPath:"/tmp/<client>-<reportTp>-<week>.json"` 패턴 권장
+1. **chmod 600 accounts.json** — 644 (warning 매 시작)
+2. **MCP 서버 재시작** — Desktop이 새 tool/resource list 인식
+3. **Desktop e2e**: `prepare_daily_dashboard({date:"2026-05-20"})` 호출 → accounts.json hellomax entry로 작동 확인
+4. **placeholder accounts 정리**: client-1~6 entry 남아있다면 제거
+5. **잃은 기능 평가**: daily_thresholds override / automation_enabled 등 다시 필요해지면 accounts.json schema 확장 또는 별도 config
 
 ## Blockers
 
@@ -37,18 +40,19 @@ summary: commit 42bce5b — register_client tool 신규 + fetch_raw_data 1MB-saf
 
 ## Watch Out
 
-- **client-mappings 캐시**: register_client는 등록 직후 `_mappingsCache = undefined` 처리하나, 별도 MCP 서버 인스턴스(예: 다른 Desktop 창)가 떠 있으면 그쪽은 stale. 서버 재시작 권장
-- **자동 customer_id 자동 추출**: `account` 명시 안 하면 `client_id` → default account 순서로 매칭. 의도 다르면 `account:"<name>"` 명시
-- **recipients PII**: accounts.json에 없음, 자동 채울 수 없음. register_client 호출 시 사용자가 명시 필수
-- **fetch_raw_data 자동 가드**: hint 반환 시 실제 데이터는 응답에 없음 → 재호출 필요. tool description에 명시되어 있음
-- **proper-lockfile**: 동시 register_client는 직렬화. high-frequency 호출 시 timeout (현재는 AE 수동이라 무관)
+- **잃은 client별 메타**: daily_thresholds override, automation_enabled, display_name, notes. 모두 global default로 처리됨
+- **MCP 서버 재시작 필수**: 핫리로드 미지원. 다른 Desktop 창은 stale tool list 사용 가능
+- **account.name == client_id 등가**: `prepare_daily_dashboard` 결과의 `client` 필드는 account name. AE는 같은 명명 규약 유지 (kebab-case 권장)
+- **이메일 MCP 책임 이관**: recipients/cc는 별도 Email MCP가 입력. 본 MCP는 보고서 artifact만 생성
+- **register_client 폐기**: Desktop이 호출하면 unknown tool 에러. 호스트 LLM 가이드 갱신 필요
 
 ## Files Touched
 
-- `src/runtime/client-mappings-writer.ts` (신규, 92 lines)
-- `src/mcp/server.ts` (+235 lines: schema/tool def/handler/dispatch/export + fetch_raw_data 옵션 + weekly warnings)
-- `tests/client-mappings-writer.test.ts` (신규, 157 lines)
-- `tests/register-client.test.ts` (신규, 206 lines)
-- `tests/mcp.test.ts` (+104 lines: tool count + fetch_raw_data 3 cases)
-- `AGENTS.md` (tool 7→8 + test 388→394)
-- `.claude-project/memory/{register-client-tool-pattern,client-mappings-atomic-write,mcp-1mb-response-limit}.md` (신규 3건)
+- `src/mcp/server.ts` (-248 lines: register_client schema/handler/dispatch/export 삭제, client-mappings 의존 제거, daily 로직 재설계)
+- `src/config/client-mappings.{ts,json}` (삭제)
+- `src/runtime/client-mappings-{loader,writer}.ts` (삭제)
+- `tests/client-mappings*.test.ts`, `tests/register-client.test.ts` (삭제)
+- `tests/prepare-daily-dashboard.test.ts` (accountStore fixture 교체)
+- `tests/mcp.test.ts`, `tests/layer-rules.test.ts` (assertion 갱신)
+- `AGENTS.md` (tool/resource/test count 갱신)
+- `.claude-project/memory/`: register-client/client-mappings-atomic-write 삭제, config-single-source-principle 신규, accounts-json-active 갱신, MEMORY.md 인덱스 정리
