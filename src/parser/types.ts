@@ -1,8 +1,8 @@
 // L5 types: standard KPI shapes used across parser, analyzer, dashboard, output.
 //
-// All numeric values are precomputed by the parser. The AI is forbidden to
-// recompute — it may only cite values from these fields. This is the contract
-// that makes the hallucination guard work.
+// All numeric values are precomputed by the parser. The host LLM may only cite
+// values from these fields — it must not recompute. This is the host LLM input
+// contract.
 
 import { z } from "zod";
 
