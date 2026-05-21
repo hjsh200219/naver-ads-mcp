@@ -680,11 +680,14 @@ export function createServer(deps: ServerDeps = {}): {
       getAdGroups(apiClient),
     ]);
 
+    const todayCompact = toYmdCompact(new Date());
     const fetchByDay = async (
       reportTp: (typeof REPORT_TYPES)[number],
     ): Promise<Record<string, unknown>[]> => {
       const rows: Record<string, unknown>[] = [];
       for (const statDt of enumerateDates(startDate, endDate)) {
+        // Skip future dates — Naver API returns 400 for statDt > today.
+        if (statDt > todayCompact) continue;
         try {
           const res = await requestStatReport({
             client: apiClient,
@@ -694,6 +697,15 @@ export function createServer(deps: ServerDeps = {}): {
           rows.push(...(res.rows as Record<string, unknown>[]));
         } catch (err) {
           if (err instanceof StatReportFailedError) continue;
+          // Treat 4xx (e.g. invalid statDt, no data) as skippable per-day; only
+          // re-throw on network / 5xx so weekly aggregation degrades gracefully.
+          if (
+            err instanceof NaverAdsApiError &&
+            err.status >= 400 &&
+            err.status < 500
+          ) {
+            continue;
+          }
           throw err;
         }
       }
@@ -867,11 +879,13 @@ export function createServer(deps: ServerDeps = {}): {
       getAdGroups(apiClient),
     ]);
 
+    const todayCompactDaily = toYmdCompact(new Date());
     const fetchOne = async (
       reportTp: (typeof REPORT_TYPES)[number],
     ): Promise<Record<string, unknown>[]> => {
       const rows: Record<string, unknown>[] = [];
       for (const statDt of dates) {
+        if (statDt > todayCompactDaily) continue;
         try {
           const res = await requestStatReport({
             client: apiClient,
@@ -881,6 +895,13 @@ export function createServer(deps: ServerDeps = {}): {
           rows.push(...(res.rows as Record<string, unknown>[]));
         } catch (err) {
           if (err instanceof StatReportFailedError) continue;
+          if (
+            err instanceof NaverAdsApiError &&
+            err.status >= 400 &&
+            err.status < 500
+          ) {
+            continue;
+          }
           throw err;
         }
       }
