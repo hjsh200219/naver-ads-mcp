@@ -1039,7 +1039,7 @@ export function createServer(deps: ServerDeps = {}): {
             outputPath: {
               type: "string",
               description:
-                "Absolute path. When set, all rows are written there and the response returns only path + count + perDate.",
+                "Absolute path on the MCP server host (not the caller's sandbox like /home/claude or /mnt/user-data). When set, all rows are written there and the response returns only path + count + perDate.",
             },
             summarize: {
               type: "boolean",
@@ -1058,7 +1058,8 @@ export function createServer(deps: ServerDeps = {}): {
       },
       {
         name: "generate_report",
-        description: "Generate a full Excel report (.xlsx) for a date range.",
+        description:
+          "Generate a full 10-sheet Excel report (.xlsx) for a date range. RECOMMENDED: omit outputPath — file is saved to ./reports/<account>/<account>_<startDate>_<endDate>.xlsx on the MCP server host machine. IMPORTANT: outputPath must be an absolute path on the MCP server host (not the calling LLM's sandbox like /home/claude or /mnt/user-data). When omitted, the default reports/ directory is auto-created.",
         inputSchema: {
           type: "object",
           properties: {
@@ -1067,10 +1068,11 @@ export function createServer(deps: ServerDeps = {}): {
             endDate: { ...YYYYMMDD, description: "End date YYYYMMDD" },
             outputPath: {
               type: "string",
-              description: "Absolute path for the output .xlsx file",
+              description:
+                "Absolute path on the MCP server host (not the caller's sandbox). When omitted, defaults to ./reports/<account>/<account>_<startDate>_<endDate>.xlsx.",
             },
           },
-          required: ["startDate", "endDate", "outputPath"],
+          required: ["startDate", "endDate"],
         },
       },
       {
@@ -1130,7 +1132,7 @@ export function createServer(deps: ServerDeps = {}): {
       {
         name: "finalize_weekly_dashboard",
         description:
-          "Stage 3/3 of the weekly report pipeline. Validates the host-provided AiAnalysis, renders 광고주 발송용 html/xlsx + AE preview artifact, appends a history entry, and returns the file paths and payload_hash.",
+          "Stage 3/3 of the weekly report pipeline. Validates the host-provided AiAnalysis, renders 광고주 발송용 html/xlsx + AE preview artifact, appends a history entry, and returns the file paths and payload_hash. Files are ALWAYS saved on the MCP server host at ./reports/<client>/<client>_<week>.{html,xlsx} (not the caller's sandbox). The returned html_path/xlsx_path are host-machine paths the AE opens locally.",
         inputSchema: {
           type: "object",
           properties: {
