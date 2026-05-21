@@ -1,31 +1,31 @@
 ---
-created: 2026-05-21T22:00:00+09:00
+created: 2026-05-21T23:30:00+09:00
 project: naver-ads-mcp
-summary: commit ab5b3ae — weekly/daily live API path가 미래 statDt에 HTTP 400으로 전체 fail. statDt > today skip + NaverAdsApiError 4xx continue로 graceful degrade. dry-run hellomax 2026-W21 실데이터 성공.
+summary: Desktop 실전 호출에서 발견된 5개 실패 모드 fix — Anthropic SDK 호출 시도/sandbox 경로/cwd="/" mkdir fail/artifact 미렌더/형식 선택 안 묻기. 354/354 pass 유지.
 ---
 
 ## Session Digest
 
-직전 commit `a2fa57a`로 prepare_weekly_payload live API path 추가. Desktop에서 호출하니 "Client error (400)" 전체 fail. 원인: Naver API가 미래 일자(`statDt > today`)에 HTTP 400 reject. ISO week `[Mon, Sun]` 7일치 fetch는 진행 중인 주에서 5/22~5/24 등 미래일자 포함 → 첫 throw에서 abort.
-
-해결 (commit `ab5b3ae`): `fetchByDay`(weekly) + `fetchOne`(daily) 양쪽에서 (1) `statDt > today` skip (2) `NaverAdsApiError 4xx`도 `StatReportFailedError`처럼 continue. 5xx만 throw 유지.
+이전 push (698defd) 이후 Claude Desktop으로 weekly 보고서 e2e 시도하며 발견된 5개 실패 모드 순차 fix. 각각 코드/description 변경으로 해결. 모두 호스트 dry-run으로 통과 확인. Desktop 재시작 + 재호출이 다음 검증 단계.
 
 ## Progress
 
-- ✅ src/mcp/server.ts fetchByDay: 미래 statDt skip + 4xx continue
-- ✅ src/mcp/server.ts fetchOne: 동일 패치
-- ✅ dry-run prepare_weekly_payload({client:"hellomax", week:"2026-W21"}) 실데이터 성공 (kpi_current.impressions=12794, cost=100428)
-- ✅ vitest 354/354 pass, typecheck 0 errors
-- ✅ commit ab5b3ae push (origin/main)
-- ✅ Memory: naver-api-quirks.md에 "미래 statDt = 400" 섹션 추가
+- ✅ **ab5b3ae**: weekly/daily live API path 미래 statDt skip + 4xx continue (Naver API 400 fail 해결)
+- ✅ **a0eafe4**: generate_weekly_analysis_prompt description 강화 — "YOU (calling LLM) are analyst. Do NOT call external Anthropic API"
+- ✅ **23e59e7**: generate_report outputPath required → optional 정정. outputPath description에 "host 머신 경로, caller sandbox 금지" 명시
+- ✅ **ea02abd**: cli.ts에서 import.meta.url로 project root 계산 → REPORTS_BASE_DIR을 서버에 명시 주입. Desktop이 cwd="/" 설정해도 안전. server.ts fallback default도 `process.cwd()` → `os.homedir()` 로 변경
+- ✅ **81032b5**: finalize_weekly_dashboard description에 "artifact_html을 Claude Desktop artifact UI(text/html)로 렌더링" 명시. README "리포트 선택 가이드" + "Artifact 렌더링" 섹션 신규
+- ✅ **20cf021**: prepare_weekly_payload + generate_report 양쪽 description 첫머리에 "STOP — BEFORE CALLING: 형식 선택 안 했으면 ASK first" 강제 (한쪽만 넣으면 다른 path가 default됨)
+- ✅ 354/354 tests pass, typecheck 0 errors
+- ✅ Memory 3건 신규: mcp-server-cwd-pitfall, caller-sandbox-vs-host-paths, tool-description-llm-guidance-limits
 
 ## Next Steps
 
-1. **Claude Desktop 완전 종료 + 재실행** — MCP 서버 재spawn 필요 (tsx 모듈 캐시 invalidate). 현재 Desktop은 ab5b3ae 이전 코드 메모리에 보유 가능
-2. **Desktop e2e**: `prepare_weekly_payload({client:"hellomax", week:"2026-W21"})` → `generate_weekly_analysis_prompt` → host LLM 분석 → `finalize_weekly_dashboard` 전체 흐름
-3. **chmod 600 accounts.json** (644 warning 매 startup)
-4. **classifyConvTp 매핑 정확성** 검토 — AE 수동 분류와 Naver conversionType code 매칭 결과 비교 (구매완료/회원가입/신청완료/기타전환)
-5. **hygiene refactor** (low priority): `todayCompact` / `todayCompactDaily` 변수 중복 — fetchLiveWeeklyPayload + defaultLiveDailyProvider 외부로 hoist 가능
+1. **Claude Desktop 완전 종료(Cmd+Q) + 재실행** → MCP 서버 재spawn, 최신 코드 + tool description 로드 확인. log에 `reports=<project>/reports` 라인 보이면 성공
+2. **"이번주 hellomax 리포트" 재호출** → Desktop이 (A) raw 10시트 vs (B) weekly dashboard 옵션 묻고 진행 확인
+3. **사용자가 (B) 선택** → prepare_weekly_payload → generate_weekly_analysis_prompt → finalize_weekly_dashboard 통과 + artifact UI 렌더 확인
+4. **chmod 600 accounts.json** (warning 매 startup)
+5. **만약 Desktop이 여전히 안 묻으면** → dispatcher tool 도입 검토 (단일 entry tool이 사용자 응답 기반 분기). 코드 description 강제로 부족 시 유일 대안
 
 ## Blockers
 
@@ -33,12 +33,15 @@ summary: commit ab5b3ae — weekly/daily live API path가 미래 statDt에 HTTP 
 
 ## Watch Out
 
-- **partial data 가능성**: live path는 미래/4xx 일자 silent skip → 진행 중인 주는 부분 데이터만 반환 (kpi_current이 7일치 아닐 수 있음)
-- **5xx fail-fast 유지**: 진짜 API 장애 시 weekly/daily tool throw → 의도된 behavior
-- **Desktop tsx 캐시**: source 변경해도 MCP 서버 프로세스 살아있는 한 메모리 모듈 reuse. 재시작 필수
-- **NaverAdsApiError.status 의존**: 400/401/403/404 모두 동일 skip. 401(인증)도 skip되니 자격증명 만료 시 silent partial → `validate_credentials` 별도 점검 권장
+- **Desktop tsx 모듈 캐시**: file 변경해도 process 살아있으면 옛 코드 reuse. 항상 Cmd+Q 후 재실행
+- **artifact 렌더링은 client 정책 의존**: description으로 유도만 가능, Desktop 측 구현에 따라 안 될 수 있음
+- **caller sandbox 경로**: Desktop이 자기 sandbox 경로(`/home/claude`, `/mnt/user-data`) 인식 → 가끔 그 경로 outputPath로 전달. description에 명시했으나 LLM 무시 가능. 사용자가 outputPath 생략 권장
+- **REPORTS_BASE_DIR 정합**: cli.ts에서 명시 주입. 단 server.ts library mode(외부 import 시) fallback은 `os.homedir()` — homedir 가정 위험할 경우 deps.reportsBaseDir 명시 권장
+- **weekly live path partial data**: 진행 중인 주는 미래 일자 silent skip → kpi_current이 7일치 아님
 
 ## Files Touched
 
-- src/mcp/server.ts (+21 lines: fetchByDay/fetchOne 가드)
-- .claude-project/memory/naver-api-quirks.md (미래 statDt 섹션 추가)
+- src/mcp/server.ts (description 강화, REPORTS_BASE_DIR fallback)
+- src/cli.ts (project root resolve + REPORTS_BASE_DIR 주입)
+- README.md (리포트 선택 가이드 + artifact 섹션)
+- .claude-project/memory/{mcp-server-cwd-pitfall, caller-sandbox-vs-host-paths, tool-description-llm-guidance-limits}.md (신규)

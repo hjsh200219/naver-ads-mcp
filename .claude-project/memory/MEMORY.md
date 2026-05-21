@@ -32,6 +32,8 @@
 - [omc-state-cleanup.md](omc-state-cleanup.md) — Stop hook이 ralph 재시작 시도 시 대응법
 - [accounts-json-active.md](accounts-json-active.md) — accounts.json 단일 자격증명 + 클라이언트 식별 소스 운영 (client-mappings.json 폐기됨)
 - [mcp-1mb-response-limit.md](mcp-1mb-response-limit.md) — MCP transport 응답 1MB 제한. outputPath/summarize/limit 패턴 대응
+- [mcp-server-cwd-pitfall.md](mcp-server-cwd-pitfall.md) — Claude Desktop이 MCP 서버 spawn 시 cwd="/" — process.cwd() 대신 import.meta.url로 project root 계산
+- [caller-sandbox-vs-host-paths.md](caller-sandbox-vs-host-paths.md) — MCP caller(LLM) sandbox(`/home/claude`)와 host 머신 경로 격리. outputPath에 caller 경로 금지
 
 ## Feedback
 
@@ -40,3 +42,4 @@
 - [prd-vs-impl-drift-clean-path-test.md](prd-vs-impl-drift-clean-path-test.md) — PRD가 "per X 1건" 카디널리티 명시하면 clean-path 카운트도 회귀 테스트로 단언 (breach-path만 검증 시 drift)
 - [weekly-live-api-path.md](weekly-live-api-path.md) — prepare_weekly_payload는 xlsxPath 없이 ISO week만으로 자동 실행 가능 (live API fallback path)
 - [reports-path-convention.md](reports-path-convention.md) — generate_report 기본 출력 경로 + weekly/daily 파일명 규칙 통일 (./reports/<account>/ 구조)
+- [tool-description-llm-guidance-limits.md](tool-description-llm-guidance-limits.md) — MCP tool description으로 LLM 행동 유도는 약함. 다중 entry tool은 양쪽 description에 "STOP — BEFORE CALLING" 강제 필요. 그래도 무시되면 dispatcher tool 도입
