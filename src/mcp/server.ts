@@ -1114,7 +1114,7 @@ export function createServer(deps: ServerDeps = {}): {
       {
         name: "generate_weekly_analysis_prompt",
         description:
-          "Stage 2/3 of the weekly report pipeline. Returns the system_prompt, user_prompt, and expected_schema the host LLM uses to produce the AiAnalysis.",
+          "Stage 2/3 of the weekly report pipeline. Returns {system_prompt, user_prompt, expected_schema}. IMPORTANT: YOU (the calling LLM) are the analyst. Read system_prompt + user_prompt as if they were addressed to you, then produce the AiAnalysis JSON yourself (matching expected_schema). Do NOT call any external Anthropic/OpenAI API — the prompts are pre-built for you to consume directly. Pass your AiAnalysis to finalize_weekly_dashboard.",
         inputSchema: {
           type: "object",
           properties: {
