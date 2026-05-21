@@ -4,7 +4,12 @@ export interface NaverCampaign {
   nccCampaignId: string;
   customerId: number;
   name: string;
-  campaignTp: "WEB_SITE" | "SHOPPING" | "BRAND_SEARCH" | "POWER_CONTENTS" | string;
+  campaignTp:
+    | "WEB_SITE"
+    | "SHOPPING"
+    | "BRAND_SEARCH"
+    | "POWER_CONTENTS"
+    | string;
   status: string;
 }
 
@@ -32,6 +37,12 @@ export interface NaverProductGroup {
 
 // Client interface — implemented by NaverAdsClient in client.ts
 export interface INaverAdsClient {
-  get<T>(path: string, query?: Record<string, string | number | undefined>): Promise<T>;
+  get<T>(
+    path: string,
+    query?: Record<string, string | number | undefined>,
+  ): Promise<T>;
   post<T>(path: string, body: unknown): Promise<T>;
+  // Signed GET for absolute URLs returning binary payloads (e.g. stat-report
+  // downloads). Signs using the URL's path-only, matching Naver's payload spec.
+  downloadBinary(absoluteUrl: string): Promise<Buffer>;
 }

@@ -16,6 +16,7 @@ import {
 function makeMockClient(
   postResponse: unknown,
   getResponses: unknown[],
+  downloadPayload: Buffer = Buffer.from(""),
 ): INaverAdsClient {
   let getCallIndex = 0;
   return {
@@ -25,22 +26,12 @@ function makeMockClient(
       getCallIndex++;
       return resp;
     }),
+    downloadBinary: vi.fn(async () => downloadPayload),
   };
 }
 
 function makeGzBuffer(tsv: string): Buffer {
   return gzipSync(Buffer.from(tsv, "utf-8"));
-}
-
-function makeMockFetch(gzBuffer: Buffer): typeof globalThis.fetch {
-  return vi.fn(async (_url: string | URL | Request) => {
-    return {
-      arrayBuffer: async () => gzBuffer.buffer.slice(
-        gzBuffer.byteOffset,
-        gzBuffer.byteOffset + gzBuffer.byteLength,
-      ),
-    } as unknown as Response;
-  });
 }
 
 // ---------------------------------------------------------------------------
@@ -124,16 +115,19 @@ describe("US-005 requestStatReport()", () => {
     const client = makeMockClient(
       { reportJobId: 42, status: "REGIST" },
       [
-        { reportJobId: 42, status: "BUILT", downloadUrl: "https://example.com/dl" },
+        {
+          reportJobId: 42,
+          status: "BUILT",
+          downloadUrl: "https://example.com/dl",
+        },
       ],
+      gzBuffer,
     );
-    const mockFetch = makeMockFetch(gzBuffer);
 
     const promise = requestStatReport({
       client,
       reportTp: "AD_DETAIL",
       statDt: "20260501",
-      fetch: mockFetch,
       poll: { initialDelayMs: 10, maxDelayMs: 100, totalTimeoutMs: 5_000 },
     });
 
@@ -158,16 +152,19 @@ describe("US-005 requestStatReport()", () => {
       [
         { reportJobId: 99, status: "REGIST" },
         { reportJobId: 99, status: "RUNNING" },
-        { reportJobId: 99, status: "BUILT", downloadUrl: "https://example.com/dl" },
+        {
+          reportJobId: 99,
+          status: "BUILT",
+          downloadUrl: "https://example.com/dl",
+        },
       ],
+      gzBuffer,
     );
-    const mockFetch = makeMockFetch(gzBuffer);
 
     const promise = requestStatReport({
       client,
       reportTp: "AD_DETAIL",
       statDt: "20260501",
-      fetch: mockFetch,
       poll: { initialDelayMs: 10, maxDelayMs: 100, totalTimeoutMs: 5_000 },
     });
 
@@ -191,16 +188,19 @@ describe("US-005 requestStatReport()", () => {
       [
         { reportJobId: 7, status: "REGIST" },
         { reportJobId: 7, status: "RUNNING" },
-        { reportJobId: 7, status: "BUILT", downloadUrl: "https://example.com/dl" },
+        {
+          reportJobId: 7,
+          status: "BUILT",
+          downloadUrl: "https://example.com/dl",
+        },
       ],
+      gzBuffer,
     );
-    const mockFetch = makeMockFetch(gzBuffer);
 
     const promise = requestStatReport({
       client,
       reportTp: "AD",
       statDt: "20260501",
-      fetch: mockFetch,
       poll: { initialDelayMs: 100, maxDelayMs: 10_000, totalTimeoutMs: 60_000 },
     });
 
@@ -228,24 +228,59 @@ describe("US-005 requestStatReport()", () => {
     const gzBuffer = makeGzBuffer(tsv);
     const client = makeMockClient(
       { reportJobId: 1, status: "REGIST" },
-      [{ reportJobId: 1, status: "BUILT", downloadUrl: "https://cdn.example.com/file.gz" }],
+      [
+        {
+          reportJobId: 1,
+          status: "BUILT",
+          downloadUrl: "https://cdn.example.com/file.gz",
+        },
+      ],
+      gzBuffer,
     );
-    const mockFetch = makeMockFetch(gzBuffer);
 
     const promise = requestStatReport({
       client,
       reportTp: "AD_DETAIL",
       statDt: "20260501",
-      fetch: mockFetch,
       poll: { initialDelayMs: 10, maxDelayMs: 100, totalTimeoutMs: 5_000 },
     });
 
     await vi.runAllTimersAsync();
     const result = await promise;
 
-    expect(mockFetch).toHaveBeenCalledWith("https://cdn.example.com/file.gz");
+    expect(client.downloadBinary).toHaveBeenCalledWith(
+      "https://cdn.example.com/file.gz",
+    );
     expect(result.rows).toHaveLength(1);
     expect(result.rows[0]).toEqual({ header1: "val1", header2: "val2" });
+  });
+
+  it("handles plain TSV downloads (no gzip magic bytes)", async () => {
+    const tsv = "h1\th2\nval1\tval2\n";
+    const plainBuffer = Buffer.from(tsv, "utf-8");
+    const client = makeMockClient(
+      { reportJobId: 2, status: "REGIST" },
+      [
+        {
+          reportJobId: 2,
+          status: "BUILT",
+          downloadUrl: "https://cdn.example.com/plain.tsv",
+        },
+      ],
+      plainBuffer,
+    );
+
+    const promise = requestStatReport({
+      client,
+      reportTp: "AD",
+      statDt: "20260501",
+      poll: { initialDelayMs: 10, maxDelayMs: 100, totalTimeoutMs: 5_000 },
+    });
+
+    await vi.runAllTimersAsync();
+    const result = await promise;
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]).toEqual({ h1: "val1", h2: "val2" });
   });
 
   it("parses Korean TSV correctly through the full flow", async () => {
@@ -253,15 +288,20 @@ describe("US-005 requestStatReport()", () => {
     const gzBuffer = makeGzBuffer(tsv);
     const client = makeMockClient(
       { reportJobId: 55, status: "REGIST" },
-      [{ reportJobId: 55, status: "BUILT", downloadUrl: "https://example.com/dl.gz" }],
+      [
+        {
+          reportJobId: 55,
+          status: "BUILT",
+          downloadUrl: "https://example.com/dl.gz",
+        },
+      ],
+      gzBuffer,
     );
-    const mockFetch = makeMockFetch(gzBuffer);
 
     const promise = requestStatReport({
       client,
       reportTp: "EXPKEYWORD",
       statDt: "20260501",
-      fetch: mockFetch,
       poll: { initialDelayMs: 10, maxDelayMs: 100, totalTimeoutMs: 5_000 },
     });
 
@@ -269,7 +309,11 @@ describe("US-005 requestStatReport()", () => {
     const result = await promise;
 
     expect(result.rows).toHaveLength(1);
-    expect(result.rows[0]).toEqual({ 키워드: "광고", 노출수: "100", 클릭수: "10" });
+    expect(result.rows[0]).toEqual({
+      키워드: "광고",
+      노출수: "100",
+      클릭수: "10",
+    });
   });
 
   it("throws StatReportTimeoutError when polling exceeds totalTimeoutMs", async () => {
@@ -280,7 +324,6 @@ describe("US-005 requestStatReport()", () => {
       { reportJobId: 123, status: "REGIST" },
       Array(100).fill(runningResponse),
     );
-    const mockFetch = vi.fn();
 
     const startTime = Date.now();
     vi.setSystemTime(startTime);
@@ -289,7 +332,6 @@ describe("US-005 requestStatReport()", () => {
       client,
       reportTp: "AD_DETAIL",
       statDt: "20260501",
-      fetch: mockFetch,
       // timeout of 50ms; initialDelay 10ms
       poll: { initialDelayMs: 10, maxDelayMs: 20, totalTimeoutMs: 50 },
     });
@@ -303,18 +345,15 @@ describe("US-005 requestStatReport()", () => {
   });
 
   it("throws StatReportFailedError when status=FAILED", async () => {
-    const client = makeMockClient(
-      { reportJobId: 77, status: "REGIST" },
-      [{ reportJobId: 77, status: "FAILED" }],
-    );
-    const mockFetch = vi.fn();
+    const client = makeMockClient({ reportJobId: 77, status: "REGIST" }, [
+      { reportJobId: 77, status: "FAILED" },
+    ]);
 
     // FAILED is detected immediately after the first GET poll (no sleep needed)
     const promise = requestStatReport({
       client,
       reportTp: "AD_CONVERSION",
       statDt: "20260501",
-      fetch: mockFetch,
       poll: { initialDelayMs: 10, maxDelayMs: 100, totalTimeoutMs: 5_000 },
     });
 
@@ -322,18 +361,15 @@ describe("US-005 requestStatReport()", () => {
   });
 
   it("throws StatReportFailedError when status=NONE", async () => {
-    const client = makeMockClient(
-      { reportJobId: 88, status: "REGIST" },
-      [{ reportJobId: 88, status: "NONE" }],
-    );
-    const mockFetch = vi.fn();
+    const client = makeMockClient({ reportJobId: 88, status: "REGIST" }, [
+      { reportJobId: 88, status: "NONE" },
+    ]);
 
     // NONE is detected immediately after the first GET poll (no sleep needed)
     const promise = requestStatReport({
       client,
       reportTp: "AD_CONVERSION_DETAIL",
       statDt: "20260501",
-      fetch: mockFetch,
       poll: { initialDelayMs: 10, maxDelayMs: 100, totalTimeoutMs: 5_000 },
     });
 

@@ -55,6 +55,7 @@ const mockClient: INaverAdsClient = {
     status: "BUILT",
     downloadUrl: "http://example.com/report.tsv.gz",
   })),
+  downloadBinary: vi.fn(async () => Buffer.from("h1\nv1\n", "utf-8")),
 };
 
 const mockLoader: ICredentialLoader = {

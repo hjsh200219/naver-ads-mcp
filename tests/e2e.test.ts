@@ -159,6 +159,13 @@ function makeMockClient(): INaverAdsClient {
       }
       throw new Error(`Unexpected POST: ${p}`);
     }),
+    downloadBinary: vi.fn(async (url: string) => {
+      const match = url.match(/https:\/\/example\.com\/r\/(.+)$/);
+      if (!match) throw new Error(`Unexpected downloadBinary URL: ${url}`);
+      const tsv = TSV_BY_REPORT_TP[match[1]!];
+      if (tsv === undefined) throw new Error(`No TSV for ${match[1]}`);
+      return gzipSync(Buffer.from(tsv, "utf-8"));
+    }),
   };
 }
 

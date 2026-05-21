@@ -1,6 +1,14 @@
-import type { INaverAdsClient, NaverCampaign, NaverAdGroup, NaverKeyword, NaverProductGroup } from "./types.js";
+import type {
+  INaverAdsClient,
+  NaverCampaign,
+  NaverAdGroup,
+  NaverKeyword,
+  NaverProductGroup,
+} from "./types.js";
 
-export function getCampaigns(client: INaverAdsClient): Promise<NaverCampaign[]> {
+export function getCampaigns(
+  client: INaverAdsClient,
+): Promise<NaverCampaign[]> {
   return client.get<NaverCampaign[]>("/ncc/campaigns");
 }
 
@@ -16,14 +24,26 @@ export function getAdGroups(
 
 export function getKeywords(
   client: INaverAdsClient,
-  opts?: { adGroupId?: string },
+  opts: { adGroupId: string },
 ): Promise<NaverKeyword[]> {
-  return client.get<NaverKeyword[]>(
-    "/ncc/keywords",
-    opts?.adGroupId ? { nccAdgroupId: opts.adGroupId } : undefined,
-  );
+  return client.get<NaverKeyword[]>("/ncc/keywords", {
+    nccAdgroupId: opts.adGroupId,
+  });
 }
 
-export function getProducts(client: INaverAdsClient): Promise<NaverProductGroup[]> {
+// Naver `/ncc/keywords` requires `nccAdgroupId`; iterate ad groups to collect all.
+export async function getAllKeywords(
+  client: INaverAdsClient,
+  adGroups: ReadonlyArray<Pick<NaverAdGroup, "nccAdgroupId">>,
+): Promise<NaverKeyword[]> {
+  const results = await Promise.all(
+    adGroups.map((ag) => getKeywords(client, { adGroupId: ag.nccAdgroupId })),
+  );
+  return results.flat();
+}
+
+export function getProducts(
+  client: INaverAdsClient,
+): Promise<NaverProductGroup[]> {
   return client.get<NaverProductGroup[]>("/ncc/product-groups");
 }

@@ -47,6 +47,7 @@ const mockClient: INaverAdsClient = {
     status: "BUILT",
     downloadUrl: "",
   })),
+  downloadBinary: vi.fn(async () => Buffer.from("", "utf-8")),
 };
 
 describe("MCP server: multi-account routing", () => {

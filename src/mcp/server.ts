@@ -22,7 +22,7 @@ import { REPORT_TYPES, requestStatReport } from "../api/stat-reports.js";
 import {
   getCampaigns,
   getAdGroups,
-  getKeywords,
+  getAllKeywords,
   getProducts,
 } from "../api/metadata.js";
 import { buildDailyRaw } from "../raw/daily.js";
@@ -404,7 +404,6 @@ export function createServer(deps: ServerDeps = {}): {
         client,
         reportTp,
         statDt,
-        fetch: deps.fetch,
       });
       allRows.push(...result.rows);
     }
@@ -424,12 +423,12 @@ export function createServer(deps: ServerDeps = {}): {
     const client = resolveClient(account);
     const dates = enumerateDates(startDate, endDate);
 
-    const [campaigns, adGroups, keywords, products] = await Promise.all([
+    const [campaigns, adGroups, products] = await Promise.all([
       getCampaigns(client),
       getAdGroups(client),
-      getKeywords(client),
       getProducts(client),
     ]);
+    const keywords = await getAllKeywords(client, adGroups);
 
     const fetchAll = async (
       reportTp: (typeof REPORT_TYPES)[number],
@@ -441,7 +440,6 @@ export function createServer(deps: ServerDeps = {}): {
             client,
             reportTp,
             statDt,
-            fetch: deps.fetch,
           });
           rows.push(...result.rows);
         }

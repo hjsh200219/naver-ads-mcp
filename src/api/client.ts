@@ -22,7 +22,7 @@ export class NaverAdsApiError extends Error {
   constructor(
     message: string,
     public status: number,
-    public body?: string
+    public body?: string,
   ) {
     super(message);
     this.name = "NaverAdsApiError";
@@ -49,13 +49,48 @@ export class NaverAdsClient {
 
   async get<T>(
     path: string,
-    query?: Record<string, string | number | undefined>
+    query?: Record<string, string | number | undefined>,
   ): Promise<T> {
     return this._request<T>("GET", path, undefined, query);
   }
 
   async post<T>(path: string, body: unknown): Promise<T> {
     return this._request<T>("POST", path, body);
+  }
+
+  // Signed GET for an absolute URL returning binary. Signs path-only per Naver
+  // spec (query string excluded). No retry — caller has already proven the
+  // resource exists via the BUILT poll, so a 5xx here is a hard failure.
+  async downloadBinary(absoluteUrl: string): Promise<Buffer> {
+    const { credentials } = this.config;
+    const path = new URL(absoluteUrl).pathname;
+    const authHeaders = this._signer({
+      customerId: credentials.customerId,
+      accessLicense: credentials.accessLicense,
+      secretKey: credentials.secretKey,
+      method: "GET",
+      uri: path,
+    } satisfies BuildHeadersParams);
+
+    let response: Response;
+    try {
+      response = await this._fetch(absoluteUrl, {
+        method: "GET",
+        headers: { ...authHeaders },
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new NaverAdsApiError(`Network error: ${msg}`, 0, undefined);
+    }
+    if (!response.ok) {
+      const bodyText = await response.text().catch(() => "");
+      throw new NaverAdsApiError(
+        `Download failed (${response.status})`,
+        response.status,
+        bodyText,
+      );
+    }
+    return Buffer.from(await response.arrayBuffer());
   }
 
   // ---------------------------------------------------------------------------
@@ -65,7 +100,7 @@ export class NaverAdsClient {
     method: string,
     path: string,
     body?: unknown,
-    query?: Record<string, string | number | undefined>
+    query?: Record<string, string | number | undefined>,
   ): Promise<T> {
     const { baseUrl, credentials } = this.config;
 
@@ -123,7 +158,11 @@ export class NaverAdsClient {
       if (response.status === 401) {
         if (attemptsLeft <= 0) {
           const bodyText = await response.text().catch(() => "");
-          throw new NaverAdsApiError("Authentication failed (401)", 401, bodyText);
+          throw new NaverAdsApiError(
+            "Authentication failed (401)",
+            401,
+            bodyText,
+          );
         }
         // Re-sign with a fresh timestamp and retry immediately (no delay)
         let retryResponse: Response;
@@ -135,7 +174,11 @@ export class NaverAdsClient {
         }
         if (retryResponse.status === 401) {
           const bodyText = await retryResponse.text().catch(() => "");
-          throw new NaverAdsApiError("Authentication failed (401)", 401, bodyText);
+          throw new NaverAdsApiError(
+            "Authentication failed (401)",
+            401,
+            bodyText,
+          );
         }
         return retryResponse;
       }
@@ -186,7 +229,7 @@ export class NaverAdsClient {
         lastError = new NaverAdsApiError(
           `Rate limited (429), Retry-After: ${retryAfterSec}s`,
           429,
-          await response.text().catch(() => "")
+          await response.text().catch(() => ""),
         );
         // The Retry-After wait serves as the delay for this retry slot;
         // suppress the exponential-backoff delay at the top of the next iteration.
@@ -200,7 +243,7 @@ export class NaverAdsClient {
         lastError = new NaverAdsApiError(
           `Server error (${response.status})`,
           response.status,
-          await response.text().catch(() => "")
+          await response.text().catch(() => ""),
         );
         continue;
       }
@@ -210,7 +253,7 @@ export class NaverAdsClient {
       throw new NaverAdsApiError(
         `Client error (${response.status})`,
         response.status,
-        bodyText
+        bodyText,
       );
     }
 

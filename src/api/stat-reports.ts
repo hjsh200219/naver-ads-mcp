@@ -20,10 +20,12 @@ export interface StatReportRequest {
   client: INaverAdsClient;
   reportTp: ReportType;
   statDt: string; // "YYYYMMDD"
-  /** Inject for tests; defaults to globalThis.fetch */
-  fetch?: typeof globalThis.fetch;
   /** Polling config (exposed for tests) */
-  poll?: { initialDelayMs?: number; maxDelayMs?: number; totalTimeoutMs?: number };
+  poll?: {
+    initialDelayMs?: number;
+    maxDelayMs?: number;
+    totalTimeoutMs?: number;
+  };
 }
 
 export interface StatReportResult<TRow = Record<string, string>> {
@@ -35,7 +37,9 @@ export interface StatReportResult<TRow = Record<string, string>> {
 
 export class StatReportTimeoutError extends Error {
   constructor(reportJobId: number, elapsedMs: number) {
-    super(`StatReport polling timed out for jobId=${reportJobId} after ${elapsedMs}ms`);
+    super(
+      `StatReport polling timed out for jobId=${reportJobId} after ${elapsedMs}ms`,
+    );
     this.name = "StatReportTimeoutError";
   }
 }
@@ -73,7 +77,9 @@ async function pollUntilBuilt(
       throw new StatReportTimeoutError(reportJobId, elapsed);
     }
 
-    const job = await client.get<StatReportJobResponse>(`/stat-reports/${reportJobId}`);
+    const job = await client.get<StatReportJobResponse>(
+      `/stat-reports/${reportJobId}`,
+    );
 
     if (job.status === "BUILT") {
       if (!job.downloadUrl) {
@@ -96,7 +102,6 @@ export async function requestStatReport<TRow = Record<string, string>>(
   req: StatReportRequest,
 ): Promise<StatReportResult<TRow>> {
   const { client, reportTp, statDt } = req;
-  const fetchFn = req.fetch ?? globalThis.fetch;
   const poll: Required<NonNullable<StatReportRequest["poll"]>> = {
     initialDelayMs: req.poll?.initialDelayMs ?? DEFAULT_POLL.initialDelayMs,
     maxDelayMs: req.poll?.maxDelayMs ?? DEFAULT_POLL.maxDelayMs,
@@ -113,11 +118,11 @@ export async function requestStatReport<TRow = Record<string, string>>(
   // Step 2: Poll GET /stat-reports/{reportJobId} until BUILT
   const downloadUrl = await pollUntilBuilt(client, reportJobId, poll);
 
-  // Step 3: Fetch the downloadUrl, gunzip, parse TSV
-  const response = await fetchFn(downloadUrl);
-  const arrayBuffer = await response.arrayBuffer();
-  const gzBuffer = Buffer.from(arrayBuffer);
-  const tsvText = gunzipSync(gzBuffer).toString("utf-8");
+  // Step 3: Signed download → branch on gzip magic bytes (1f 8b). The
+  // fileVersion=v2 endpoint returns plain TSV; v1 may return gzip.
+  const buf = await client.downloadBinary(downloadUrl);
+  const isGzip = buf.length >= 2 && buf[0] === 0x1f && buf[1] === 0x8b;
+  const tsvText = (isGzip ? gunzipSync(buf) : buf).toString("utf-8");
   const rows = parseTsv<TRow>(tsvText);
 
   return { rows, reportTp, statDt, reportJobId };
