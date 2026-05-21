@@ -626,8 +626,13 @@ export function createServer(deps: ServerDeps = {}): {
     });
   };
 
+  // Fallback to ~/naver-ads-mcp-reports when caller doesn't inject reportsBaseDir.
+  // We avoid process.cwd() because some hosts (Claude Desktop) spawn the
+  // server with cwd="/" which makes mkdir fail with ENOENT. cli.ts injects
+  // the project-root-based path; this homedir fallback is for library users
+  // who construct createServer() without passing reportsBaseDir.
   const REPORTS_BASE_DIR =
-    deps.reportsBaseDir ?? path.resolve(process.cwd(), "reports");
+    deps.reportsBaseDir ?? path.join(os.homedir(), "naver-ads-mcp-reports");
 
   const HISTORY_BASE_DIR =
     deps.historyBaseDir ?? path.join(os.homedir(), ".naver-ads-mcp", "history");
