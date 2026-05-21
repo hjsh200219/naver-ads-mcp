@@ -32,6 +32,7 @@ Thumbs.db
 # Generated reports / data
 data/
 /output/
+/reports/
 *.parquet
 
 

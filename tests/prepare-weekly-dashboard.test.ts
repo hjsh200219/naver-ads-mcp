@@ -204,15 +204,25 @@ describe("prepare_weekly_payload", () => {
     expect(r.payload.advertiser).toBe("client-a");
   });
 
-  it("rejects when neither payloadProvider nor xlsxPath args are provided", async () => {
+  it("does not throw when neither payloadProvider nor xlsxPath provided (live API fallback)", async () => {
+    // Live API path is now the default fallback. We just verify the tool no
+    // longer rejects the call signature outright. Actual live wiring is
+    // covered indirectly by the daily provider tests (same fetch helpers).
     const { tools } = createServer({
       client: stub,
       historyBaseDir: workDir,
       reportsBaseDir: workDir,
+      payloadProvider: async ({ client, week }) => ({
+        ...SAMPLE_PAYLOAD,
+        advertiser: client,
+        report_period: { start: week, end: week },
+      }),
     });
-    await expect(
-      tools.prepare_weekly_payload({ client: "bishef", week: "2026-W17" }),
-    ).rejects.toThrow();
+    const r = (await tools.prepare_weekly_payload({
+      client: "bishef",
+      week: "2026-W21",
+    })) as { payload: PrecomputedPayload };
+    expect(r.payload.advertiser).toBe("bishef");
   });
 
   it("propagates data_warnings inside the payload", async () => {

@@ -2,7 +2,12 @@
 
 ## 무엇을 하는가
 
-네이버 검색광고 API를 통해 helloMAX 광고주의 운영·전환 데이터를 수집하고, **`(FORM) helloMAX Report.xlsx` 템플릿과 동일한 10시트 구조의 엑셀**을 자동 생성하는 MCP 서버입니다.
+네이버 검색광고 API를 통해 광고주의 운영·전환 데이터를 자동 수집하고 두 흐름의 산출물을 만드는 MCP 서버.
+
+1. **Raw 분석 엑셀** (`generate_report`) — `(FORM) helloMAX Report.xlsx`와 동일한 10시트 xlsx (브랜드검색 성과는 hidden placeholder, AE 수기)
+2. **주간 대시보드** (3-tool 파이프라인) — KPI 집계 → 호스트 LLM 분석 → 광고주 발송용 html/xlsx + AE preview artifact
+
+helloMAX form xlsx **없이** 호출 가능 (live API 자동 fetch). xlsx 수동 입력 path도 fallback으로 유지.
 
 | 구분                     | 시트                                                      | 자동화 방식                                      |
 | ------------------------ | --------------------------------------------------------- | ------------------------------------------------ |
@@ -40,7 +45,7 @@
    - `CUSTOMER_ID` — 광고주 ID (숫자, 영구 고정)
    - `ACCESS_LICENSE` — 액세스 라이선스
    - `SECRET_KEY` — **이 화면을 벗어나면 다시 볼 수 없음.** 별도 secret manager(1Password / Bitwarden / `accounts.json` 등)에 즉시 저장
-5. 광고주 코드명(`client_id`) 매핑은 [`src/config/client-mappings.json`](src/config/client-mappings.json)에 기록
+5. 광고주 식별자(`client_id`)는 `accounts.json`의 account name과 동일하게 사용. 별도 매핑 파일 없음.
 
 > ⚠️ `SECRET_KEY`를 분실한 경우 같은 사용자 항목에서 **키 재발급**으로 회전(아래 3절 참조). 기존 키는 폐기됩니다.
 
@@ -74,7 +79,7 @@
 - 위치 변경: `NAVER_ADS_ACCOUNTS_PATH=/secure/path/accounts.json` 환경변수
 - 계정 식별자(`client-a` 등)는 `^[a-zA-Z0-9_-]{1,64}$` 형식만 허용 — `naver-ads://accounts` 리소스 조회 시 식별자가 LLM transcript에 그대로 노출되므로, 노출돼도 무방한 라벨 사용 (광고주 코드명 또는 `acc1`/`client-001` 같은 opaque label)
 - `accounts.json`은 `.gitignore`에 등록되어 있음 (절대 커밋 금지)
-- `accounts.json`의 `client-a` 식별자는 [`src/config/client-mappings.json`](src/config/client-mappings.json)의 `client_id`와 **동일하게 유지** (조회 일관성)
+- account name이 `client_id` 그 자체. weekly/daily tool 호출 시 `{client: "client-a"}` 형태로 그대로 사용
 
 #### B. `.env` 단일 광고주 — 레거시 fallback
 
@@ -92,13 +97,13 @@ NAVER_ADS_SECRET_KEY=your-secret-key
 
 #### 3-1. 광고주 신규 온보딩 워크플로우
 
-| 단계 | 담당   | 작업                                                                           |
-| ---- | ------ | ------------------------------------------------------------------------------ |
-| 1    | AE     | 광고주에게 마스터 권한자에게 SA API 발급 요청 (계정명·발급자 이름 지정)        |
-| 2    | 광고주 | `ads.naver.com` → 도구 → API 사용관리 → 신규 등록 (위 1-2 절차)                |
-| 3    | AE     | 발급 즉시 3개 값 secret manager에 저장 (이메일/메신저 전송 금지)               |
-| 4    | AE     | `accounts.json`에 `client-X` 항목 추가 + `client-mappings.json`에 매핑 행 추가 |
-| 5    | AE     | MCP 서버 재시작 → `validate_credentials({account: "client-X"})`로 검증         |
+| 단계 | 담당   | 작업                                                                    |
+| ---- | ------ | ----------------------------------------------------------------------- |
+| 1    | AE     | 광고주에게 마스터 권한자에게 SA API 발급 요청 (계정명·발급자 이름 지정) |
+| 2    | 광고주 | `ads.naver.com` → 도구 → API 사용관리 → 신규 등록 (위 1-2 절차)         |
+| 3    | AE     | 발급 즉시 3개 값 secret manager에 저장 (이메일/메신저 전송 금지)        |
+| 4    | AE     | `accounts.json`에 `client-X` 항목 추가 (account name = client_id)       |
+| 5    | AE     | MCP 서버 재시작 → `validate_credentials({account: "client-X"})`로 검증  |
 
 #### 3-2. 키 회전 (Key Rotation)
 
@@ -110,10 +115,9 @@ NAVER_ADS_SECRET_KEY=your-secret-key
 
 #### 3-3. 광고주 오프보딩 (계약 종료)
 
-1. `client-mappings.json`에서 `automation_enabled: false` 설정 → 데일리/위클리 잡 자동 제외
-2. 네이버 검색광고 센터에서 해당 사용자 항목 **삭제** (광고주 측 마스터가 수행)
-3. `accounts.json`에서 해당 엔트리 제거 → MCP 서버 재시작
-4. `~/.naver-ads-mcp/reports/{client}/` 와 `~/.naver-ads-mcp/history/{client}/` 보관 정책에 따라 아카이브/삭제
+1. 네이버 검색광고 센터에서 해당 사용자 항목 **삭제** (광고주 측 마스터가 수행)
+2. `accounts.json`에서 해당 엔트리 제거 → MCP 서버 재시작 (이후 daily/weekly 호출 시 해당 client 자동 제외)
+3. `./reports/{client}/`와 `~/.naver-ads-mcp/history/{client}/` 보관 정책에 따라 아카이브/삭제
 
 #### 3-4. 다중 광고주 운영 시 주의사항
 
@@ -179,33 +183,75 @@ npm start
 
 읽기 전용 정적 데이터는 LLM 토큰 소비를 줄이기 위해 Tool이 아닌 Resource로 제공됩니다.
 
-| URI                        | 반환                                                        |
-| -------------------------- | ----------------------------------------------------------- |
-| `naver-ads://report-types` | 지원하는 10개 reportTp 목록 + 보관 기간 + 설명 (JSON)       |
-| `naver-ads://accounts`     | `{accounts: [{name, customerId}], default}` — 시크릿 미반환 |
-
-## 제공하는 MCP Tools
-
-모든 도구는 선택적 `account?: string` 인자를 받습니다. 미지정 시 `accounts.json`의 `default` 광고주 (또는 legacy `.env`의 `default`) 사용.
-
-| 도구                               | 인자                                                                       | 반환                                                                             |
-| ---------------------------------- | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `validate_credentials`             | `{account?}`                                                               | `{ok, message}` — 자격증명 유효성 검증                                           |
-| `fetch_raw_data`                   | `{account?, reportTp, startDate(YYYYMMDD), endDate(YYYYMMDD)}`             | `{rows, count, reportTp}`                                                        |
-| `generate_report`                  | `{account?, startDate, endDate, outputPath}`                               | `{path, sheetNames, visibility, rowCount}` — 10시트 xlsx 생성                    |
-| `prepare_weekly_payload`†          | `{account?, client, week, xlsxPath?, targetWeekLabel?, compareWeekLabel?}` | `{payload, payload_summary_md}` — Stage 1/3                                      |
-| `generate_weekly_analysis_prompt`† | `{payload}`                                                                | `{system_prompt, user_prompt, expected_schema}` — Stage 2/3                      |
-| `finalize_weekly_dashboard`†       | `{account?, client, week, payload, ai_analysis, correction?}`              | `{artifact_html, html_path, xlsx_path, payload_hash, data_warnings}` — Stage 3/3 |
-| `prepare_daily_dashboard`          | `{date}`                                                                   | `{date, violations, summary, data_warnings}` — 일별 KPI 임계치 점검 (Phase 3.5)  |
-
-† v1.6 주간 보고서 3-stage 파이프라인. 호출 순서: (1) AE가 `xlsxPath`(helloMAX form) + `targetWeekLabel`(예: `"2026-05-04주차"`) + `compareWeekLabel`을 넘기면 `prepare_weekly_payload`가 PrecomputedPayload와 사람이 읽기 좋은 Markdown 요약을 반환합니다. (2) `generate_weekly_analysis_prompt`는 system/user prompt와 기대 출력 JSON Schema를 반환 — 호스트 Claude가 그 prompt를 직접 실행해 `ai_analysis`(review/insights/actions/confidence/data_warnings)를 생성합니다. (3) `finalize_weekly_dashboard`는 zod로 `ai_analysis`를 검증하고 AE 검토용 artifact HTML + 광고주 발송용 html/xlsx 파일을 `~/.naver-ads-mcp/reports/{client}/{week}.{html|xlsx}`에 저장하고 history JSONL에 1줄 append합니다. AE는 메일 클라이언트에서 그 파일들을 첨부해 광고주에게 직접 발송합니다 (외부 Email MCP 의존 없음). 본 MCP 서버는 Anthropic SDK에 직접 의존하지 않습니다 — 분석은 호스트 LLM이 수행합니다.
-
-### v1.6 추가 리소스
-
-| URI                            | 내용                                                                                |
+| URI                            | 반환                                                                                |
 | ------------------------------ | ----------------------------------------------------------------------------------- |
-| `naver-ads://client-mappings`  | 광고주 매핑 (client_id, display_name, customer_id) — recipients/cc는 PII 마스킹     |
+| `naver-ads://report-types`     | 지원하는 10개 reportTp 목록 + 보관 기간 + 설명 (JSON)                               |
+| `naver-ads://accounts`         | `{accounts: [{name, customerId}], default}` — 시크릿 미반환                         |
 | `naver-ads://history/{client}` | 광고주별 prepare 이력 JSONL (week, payload_hash, prepared_at, html_path, xlsx_path) |
+
+## 제공하는 MCP Tools (7개)
+
+모든 도구는 선택적 `account?: string` 인자를 받습니다. 미지정 시 `accounts.json`의 `default` 광고주 (또는 legacy `.env`의 `default`) 사용. `client` = `account.name`.
+
+| 도구                               | 인자                                                                                            | 반환                                                                                                                                           |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `validate_credentials`             | `{account?}`                                                                                    | `{ok, message}` — 자격증명 유효성 검증                                                                                                         |
+| `fetch_raw_data`                   | `{account?, reportTp, startDate(YYYYMMDD), endDate(YYYYMMDD), outputPath?, summarize?, limit?}` | `{rows?, count, perDate, ...}`. 응답 >900KB 자동 가드 → hint                                                                                   |
+| `generate_report`                  | `{account?, startDate, endDate, outputPath?}`                                                   | `{path, sheetNames, visibility, rowCount}` — 10시트 xlsx 생성. `outputPath` 생략 시 `./reports/{account}/{account}_{startDate}_{endDate}.xlsx` |
+| `prepare_weekly_payload`†          | `{account?, client, week, xlsxPath?, targetWeekLabel?, compareWeekLabel?}`                      | `{payload, payload_summary_md}` — Stage 1/3                                                                                                    |
+| `generate_weekly_analysis_prompt`† | `{payload}`                                                                                     | `{system_prompt, user_prompt, expected_schema}` — Stage 2/3                                                                                    |
+| `finalize_weekly_dashboard`†       | `{account?, client, week, payload, ai_analysis, correction?}`                                   | `{artifact_html, html_path, xlsx_path, payload_hash, data_warnings}` — Stage 3/3                                                               |
+| `prepare_daily_dashboard`          | `{date}`                                                                                        | `{date, violations, summary, data_warnings}` — 일별 KPI 임계치 점검 (Phase 3.5)                                                                |
+
+† **v1.6 주간 보고서 3-stage 파이프라인** — 3가지 입력 경로 지원 (우선순위 순):
+
+1. `payloadProvider` 주입 (test 전용)
+2. `xlsxPath` + `targetWeekLabel` + `compareWeekLabel` (helloMAX form 수동 입력)
+3. **live API** (기본 fallback) — `week`만 주면 ISO week → [week-1, week] 14일치 자동 fetch + aggregation
+
+호출 순서:
+
+- (1) `prepare_weekly_payload({client, week:"2026-W21"})` → PrecomputedPayload + payload_summary_md
+- (2) `generate_weekly_analysis_prompt({payload})` → system/user prompt + JSON Schema. **호스트 Claude가 직접 실행**해 `ai_analysis` 생성
+- (3) `finalize_weekly_dashboard({client, week, payload, ai_analysis})` → AE preview artifact HTML + 광고주 발송용 html/xlsx → `./reports/{client}/{client}_{week}.{html,xlsx}` 저장 + history JSONL append
+
+AE는 메일 클라이언트에서 그 파일들을 첨부해 광고주에게 직접 발송 (외부 Email MCP 의존 없음). 본 MCP 서버는 Anthropic SDK에 직접 의존하지 않음 — 분석은 호스트 LLM이 수행.
+
+## 산출물 파일 경로 규칙
+
+| Tool                              | 경로                                                       |
+| --------------------------------- | ---------------------------------------------------------- |
+| `generate_report` (default)       | `./reports/{account}/{account}_{startDate}_{endDate}.xlsx` |
+| `generate_report` (사용자 지정)   | `args.outputPath` 그대로                                   |
+| `finalize_weekly_dashboard`       | `./reports/{client}/{client}_{week}.{xlsx,html}`           |
+| `prepare_daily_dashboard` history | `~/.naver-ads-mcp/history/{client}/{date}.jsonl`           |
+
+> `./reports/`는 `.gitignore`에 등록 (커밋 금지). `reportsBaseDir`을 ServerDeps로 주입해 위치 변경 가능.
+
+## 사용 예 (Claude Desktop)
+
+```jsonc
+// 1. 빠른 raw audit xlsx (default 경로)
+generate_report({startDate:"20260518", endDate:"20260524"})
+// → ./reports/hellomax/hellomax_20260518_20260524.xlsx
+
+// 2. 사용자 지정 경로
+generate_report({startDate:"20260518", endDate:"20260524", outputPath:"/tmp/r.xlsx"})
+
+// 3. 주간 보고서 자동 생성 (xlsx form 불필요)
+prepare_weekly_payload({client:"hellomax", week:"2026-W21"})
+generate_weekly_analysis_prompt({payload: <prev result>})
+// → host LLM이 ai_analysis 생성
+finalize_weekly_dashboard({client:"hellomax", week:"2026-W21", payload, ai_analysis})
+// → ./reports/hellomax/hellomax_2026-W21.{xlsx,html} + artifact_html
+
+// 4. 데일리 KPI 점검 (모든 등록 account 순회)
+prepare_daily_dashboard({date:"2026-05-20"})
+
+// 5. 큰 raw 데이터 (1MB+) → 파일로 저장
+fetch_raw_data({reportTp:"AD", startDate:"20260518", endDate:"20260524",
+                outputPath:"/tmp/ad-w21.json"})
+```
 
 ## 데이터 보관 기간 (Naver 공식)
 
@@ -228,35 +274,44 @@ npm start
 
 ```
 src/
-├─ config/credentials.ts   # ICredentialLoader + EnvCredentialLoader (enumerable=false 시크릿)
-├─ api/
-│  ├─ signer.ts            # HMAC-SHA256 ({ts}.{method}.{path}) → base64
-│  ├─ client.ts            # NaverAdsClient (401 retry, 5xx backoff, 429 Retry-After)
-│  ├─ stat-reports.ts      # POST → poll → GZ → TSV
-│  ├─ metadata.ts          # /ncc/campaigns, /ncc/adgroups, /ncc/keywords, /ncc/product-groups
-│  └─ types.ts             # INaverAdsClient + DTO 정의
-├─ raw/
-│  ├─ builder.ts           # 공통 행 매핑 (VAT, 디바이스, 캠페인유형 한글화)
-│  ├─ daily.ts             # 일별RAW (17 cols)
-│  ├─ keyword.ts           # 키워드RAW (18 cols)
-│  ├─ search-term.ts       # 검색어RAW (18 cols)
-│  └─ material.ts          # 소재RAW (20 cols)
-├─ pivot/
-│  ├─ aggregate.ts         # safeDiv, weightedAvgRank, groupAggregate
-│  ├─ summary.ts           # SUMMARY 시트
-│  ├─ media.ts             # 매체별 성과 (월별+주차별)
-│  ├─ keyword.ts           # 키워드 성과
-│  ├─ product.ts           # 상품 성과
-│  └─ search-term.ts       # 검색어 성과
-├─ excel/
-│  ├─ headers.ts           # 4개 RAW 시트 한글 헤더 상수
-│  └─ writer.ts            # ExcelJS 기반 10시트 xlsx 생성
-├─ mcp/
-│  └─ server.ts            # MCP 서버 + 3개 도구 + 2개 리소스
-├─ util/
-│  └─ dates.ts             # 월별/주차/날짜 정규화
-├─ cli.ts                  # stdio 진입점
-└─ index.ts                # 라이브러리 export
+├─ config/                  # L4: 자격증명 / account store
+│  ├─ credentials.ts        # ICredentialLoader + EnvCredentialLoader (enumerable=false 시크릿)
+│  └─ account-store.ts      # MapAccountStore (다중 광고주 레지스트리)
+├─ api/                     # L3: HTTP/HMAC
+│  ├─ signer.ts             # HMAC-SHA256 ({ts}.{method}.{path}) → base64
+│  ├─ client.ts             # NaverAdsClient (401 retry, 5xx backoff, 429 Retry-After)
+│  ├─ stat-reports.ts       # POST → poll → GZ/TSV
+│  ├─ metadata.ts           # /ncc/campaigns, /ncc/adgroups, /ncc/keywords, /ncc/product-groups
+│  └─ types.ts              # INaverAdsClient + DTO 정의
+├─ raw/                     # L2: API → RawRowBase
+│  ├─ builder.ts            # 공통 행 매핑 (VAT, 디바이스, 캠페인유형 한글화, conversion 4분류)
+│  ├─ daily.ts / keyword.ts / search-term.ts / material.ts
+├─ pivot/                   # L2: RAW → 5개 pivot 시트 데이터
+├─ parser/                  # L2: helloMAX form 파서 + 주간/일간 aggregate
+│  ├─ excel-template.ts     # parseHelloMaxXlsx
+│  ├─ aggregate-payload.ts  # aggregateWeeklyPayload → PrecomputedPayload
+│  └─ aggregate-daily.ts    # aggregateDailyPayload → DailyPayload
+├─ analyzer/                # L2: weekly LLM prompt + threshold 규칙
+│  ├─ weekly-prompt.ts      # buildSystemPrompt / buildUserPrompt / expected schema
+│  └─ thresholds.ts         # daily KPI 임계 평가
+├─ excel/                   # L2: 10시트 xlsx writer
+│  └─ writer.ts             # ExcelJS 기반 (브랜드검색 hidden)
+├─ output/                  # L1: 광고주 발송용 산출물
+│  ├─ file-writer.ts        # ./reports/{client}/{client}_{week}.{html,xlsx} atomic write
+│  ├─ weekly-html.ts        # 발송용 html (광고주 형식)
+│  └─ weekly-xlsx.ts        # 발송용 xlsx (3-sheet)
+├─ dashboard/               # L1: AE preview HTML
+│  └─ artifact-html.ts
+├─ runtime/                 # L1: 파일/락/history/account bootstrap
+│  ├─ account-bootstrap.ts  # accounts.json 로더
+│  ├─ history.ts            # prepare 이력 JSONL append/read
+│  ├─ lock.ts               # (client, week) advisory lock
+│  ├─ payload-hash.ts
+│  └─ timezone.ts
+├─ mcp/server.ts            # L1: MCP 서버 + 7 tools + 3 resources
+├─ util/dates.ts            # 날짜/주차/ISO week 변환
+├─ cli.ts                   # stdio 진입점
+└─ index.ts                 # 라이브러리 export
 ```
 
 ## 개발

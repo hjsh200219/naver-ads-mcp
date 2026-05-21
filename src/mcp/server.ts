@@ -52,6 +52,13 @@ import {
 import { parseHelloMaxXlsx } from "../parser/excel-template.js";
 import { aggregateWeeklyPayload } from "../parser/aggregate-payload.js";
 import {
+  isoWeekToMonday,
+  toYmdCompact,
+  addDays,
+  normalizeDate,
+  deriveWeek,
+} from "../util/dates.js";
+import {
   buildSystemPrompt,
   buildUserPrompt,
   buildPayloadSummaryMd,
@@ -84,7 +91,7 @@ export interface ServerDeps {
   baseUrl?: string;
   /** v1.6 Phase 0/3 — base directory for history JSONL files (defaults to ~/.naver-ads-mcp/history). */
   historyBaseDir?: string;
-  /** v1.6 Phase 3 — base directory for prepared report files (defaults to ~/.naver-ads-mcp/reports). */
+  /** v1.6 Phase 3 — base directory for prepared report files (defaults to ./reports under cwd). */
   reportsBaseDir?: string;
   /** v1.6 Phase 1 — provider that returns a PrecomputedPayload for (client, week). Tests inject. */
   payloadProvider?: (args: {
@@ -130,7 +137,8 @@ const GenerateReportSchema = z.object({
   account: AccountSchema,
   startDate: z.string().regex(/^\d{8}$/),
   endDate: z.string().regex(/^\d{8}$/),
-  outputPath: z.string(),
+  /** Absolute path. When omitted, defaults to <reportsBaseDir>/<account>/<account>_<startDate>_<endDate>.xlsx. */
+  outputPath: z.string().optional(),
 });
 
 const ClientIdPattern = /^[a-z0-9]+(-[a-z0-9]+)*$/;
@@ -487,8 +495,28 @@ export function createServer(deps: ServerDeps = {}): {
   const tool_generate_report = async (
     args: z.infer<typeof GenerateReportSchema>,
   ) => {
-    const { startDate, endDate, outputPath, account } = args;
+    const { startDate, endDate, account } = args;
     const client = resolveClient(account);
+    let outputPath = args.outputPath;
+    if (!outputPath) {
+      // Resolve account name lazily only when needed for the default path.
+      const accountName =
+        account ??
+        (() => {
+          try {
+            return getStore().default() ?? "default";
+          } catch {
+            return "default";
+          }
+        })();
+      outputPath = path.join(
+        REPORTS_BASE_DIR,
+        accountName,
+        `${accountName}_${startDate}_${endDate}.xlsx`,
+      );
+    }
+    const fsp = (await import("node:fs")).promises;
+    await fsp.mkdir(path.dirname(outputPath), { recursive: true });
     const dates = enumerateDates(startDate, endDate);
 
     const [campaigns, adGroups, products] = await Promise.all([
@@ -599,7 +627,7 @@ export function createServer(deps: ServerDeps = {}): {
   };
 
   const REPORTS_BASE_DIR =
-    deps.reportsBaseDir ?? path.join(os.homedir(), ".naver-ads-mcp", "reports");
+    deps.reportsBaseDir ?? path.resolve(process.cwd(), "reports");
 
   const HISTORY_BASE_DIR =
     deps.historyBaseDir ?? path.join(os.homedir(), ".naver-ads-mcp", "history");
@@ -620,15 +648,78 @@ export function createServer(deps: ServerDeps = {}): {
         compareWeek: args.compareWeekLabel,
       });
     } else {
-      throw new Error(
-        "prepare_weekly_payload: either a payloadProvider must be configured, or args must include xlsxPath + targetWeekLabel + compareWeekLabel.",
-      );
+      // Live API path: fetch raw stat-report data for [week-1, week] and aggregate.
+      payload = await fetchLiveWeeklyPayload({ clientId, week, args });
     }
     return {
       payload,
       payload_summary_md: buildPayloadSummaryMd(payload),
     };
   };
+
+  async function fetchLiveWeeklyPayload(input: {
+    clientId: string;
+    week: string;
+    args: z.infer<typeof PrepareWeeklyPayloadSchema>;
+  }): Promise<PrecomputedPayload> {
+    const { clientId, week, args } = input;
+    const targetMonday = isoWeekToMonday(week);
+    const targetSunday = addDays(targetMonday, 6);
+    const compareMonday = addDays(targetMonday, -7);
+    const targetWeekLabel =
+      args.targetWeekLabel ?? deriveWeek(normalizeDate(targetMonday));
+    const compareWeekLabel =
+      args.compareWeekLabel ?? deriveWeek(normalizeDate(compareMonday));
+
+    const startDate = toYmdCompact(compareMonday);
+    const endDate = toYmdCompact(targetSunday);
+
+    const apiClient = resolveClient(args.account);
+    const [campaigns, adGroups] = await Promise.all([
+      getCampaigns(apiClient),
+      getAdGroups(apiClient),
+    ]);
+
+    const fetchByDay = async (
+      reportTp: (typeof REPORT_TYPES)[number],
+    ): Promise<Record<string, unknown>[]> => {
+      const rows: Record<string, unknown>[] = [];
+      for (const statDt of enumerateDates(startDate, endDate)) {
+        try {
+          const res = await requestStatReport({
+            client: apiClient,
+            reportTp,
+            statDt,
+          });
+          rows.push(...(res.rows as Record<string, unknown>[]));
+        } catch (err) {
+          if (err instanceof StatReportFailedError) continue;
+          throw err;
+        }
+      }
+      return rows;
+    };
+
+    const [adRows, adConvRows] = await Promise.all([
+      fetchByDay("AD"),
+      fetchByDay("AD_CONVERSION"),
+    ]);
+
+    const rawDaily = await buildDailyRaw({
+      startDate,
+      endDate,
+      fetched: { op: adRows, conv: adConvRows, campaigns, adGroups },
+    });
+
+    return aggregateWeeklyPayload({
+      advertiser: clientId,
+      rows: rawDaily as unknown as Parameters<
+        typeof aggregateWeeklyPayload
+      >[0]["rows"],
+      targetWeek: targetWeekLabel,
+      compareWeek: compareWeekLabel,
+    });
+  }
 
   const tool_generate_weekly_analysis_prompt = async (
     args: z.infer<typeof GenerateWeeklyPromptSchema>,

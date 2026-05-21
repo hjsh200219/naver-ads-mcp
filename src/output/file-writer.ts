@@ -28,8 +28,9 @@ export async function writeReportFiles(
   const dir = path.resolve(args.baseDir, args.client);
   await fsp.mkdir(dir, { recursive: true });
 
-  const html_path = path.join(dir, `${args.week}.html`);
-  const xlsx_path = path.join(dir, `${args.week}.xlsx`);
+  const baseName = `${args.client}_${args.week}`;
+  const html_path = path.join(dir, `${baseName}.html`);
+  const xlsx_path = path.join(dir, `${baseName}.xlsx`);
 
   const lock = await acquireLock({
     baseDir: args.baseDir,
