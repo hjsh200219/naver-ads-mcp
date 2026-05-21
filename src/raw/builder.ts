@@ -14,9 +14,14 @@ const CONV_TP_TO_COL: Record<
   string,
   "구매완료" | "회원가입" | "신청완료" | "기타전환"
 > = {
+  // Numeric codes (legacy multi-dim report / synthetic test fixtures)
   "1": "구매완료",
   "2": "회원가입",
   "3": "신청완료",
+  // String names (stat-report v2 AD_CONVERSION returns convTpName)
+  purchase: "구매완료",
+  signup: "회원가입",
+  lead: "신청완료",
 };
 
 function classifyConvTp(
@@ -66,8 +71,10 @@ export interface BuilderConfig {
 function normalizeDevice(raw: string | undefined): "PC" | "MO" {
   if (!raw) return "PC";
   const u = raw.toUpperCase();
-  if (u === "PC") return "PC";
-  return "MO"; // M, MO, MOBILE all → MO
+  // stat-report v2 returns single-letter "P"/"M". Older multi-dim reports
+  // use "PC"/"MO"/"MOBILE". Map all three.
+  if (u === "PC" || u === "P") return "PC";
+  return "MO";
 }
 
 function applyVat(salesAmt: number, vatIncluded: boolean): number {

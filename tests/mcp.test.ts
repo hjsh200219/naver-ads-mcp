@@ -335,6 +335,9 @@ describe("generate_report tool", () => {
       status: "BUILT",
       downloadUrl: "http://example.com/r.gz",
     });
+    // Empty TSV — parseTsv returns [] for any reportTp without invoking the
+    // column spec. The xlsx still builds with the empty raw rows.
+    vi.mocked(mockClient.downloadBinary).mockResolvedValue(Buffer.from(""));
 
     const mockFetch = makeFetchWithTsv("statDt\tnccCampaignId\n");
 

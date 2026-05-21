@@ -19,31 +19,23 @@ import type { INaverAdsClient } from "../src/api/types.js";
 // Mock fixtures
 // ---------------------------------------------------------------------------
 
+// stat-report v2 raw TSV (no header). Column order per reportTp matches
+// COLUMN_MAPS in src/api/stat-reports.ts.
 const TSV_BY_REPORT_TP: Record<string, string> = {
   AD:
-    [
-      "statDt\tnccCampaignId\tnccAdgroupId\tpcMblTp\timpCnt\tclkCnt\tsalesAmt\tavgRnk",
-      "20260206\tcmp-1\tag-1\tPC\t1000\t10\t11000\t3.5",
-      "20260206\tcmp-1\tag-1\tMO\t2000\t30\t33000\t1.8",
-    ].join("\n") + "\n",
+    "20260206\t111\tcmp-1\tag-1\tkw-1\tad-1\tbsn-1\t0\tP\t1000\t10\t11000\t3500\t0\n" +
+    "20260206\t111\tcmp-1\tag-1\tkw-1\tad-1\tbsn-1\t0\tM\t2000\t30\t33000\t3600\t0\n",
   AD_CONVERSION:
-    [
-      "statDt\tnccCampaignId\tnccAdgroupId\tpcMblTp\tconvTpCd\tccnt\tconvAmt",
-      "20260206\tcmp-1\tag-1\tPC\t3\t1\t50000",
-    ].join("\n") + "\n",
+    "20260206\t111\tcmp-1\tag-1\tkw-1\tad-1\tbsn-1\t0\tP\t0\tlead\t1\t50000\n",
   AD_DETAIL:
-    [
-      "statDt\tnccCampaignId\tnccAdgroupId\tpcMblTp\tnccKeywordId\tkeyword\timpCnt\tclkCnt\tsalesAmt\tavgRnk",
-      "20260206\tcmp-1\tag-1\tPC\tkw-1\t헬로맥스\t100\t5\t1500\t1.1",
-    ].join("\n") + "\n",
-  AD_CONVERSION_DETAIL:
-    "statDt\tnccCampaignId\tnccAdgroupId\tpcMblTp\tnccKeywordId\tkeyword\tconvTpCd\tccnt\tconvAmt\n",
-  EXPKEYWORD: "statDt\timpCnt\n",
-  SHOPPINGKEYWORD_DETAIL: "header\n",
-  SHOPPINGKEYWORD_CONVERSION_DETAIL: "header\n",
-  SHOPPINGBRANDPRODUCT: "header\n",
-  SHOPPINGBRANDPRODUCT_CONVERSION: "header\n",
-  BRND_CONTRACT: "header\n",
+    "20260206\t111\tcmp-1\tag-1\tkw-1\tad-1\tbsn-1\t13\t02\t0\tP\t100\t5\t1500\t110\t0\n",
+  AD_CONVERSION_DETAIL: "",
+  EXPKEYWORD: "",
+  SHOPPINGKEYWORD_DETAIL: "",
+  SHOPPINGKEYWORD_CONVERSION_DETAIL: "",
+  SHOPPINGBRANDPRODUCT: "",
+  SHOPPINGBRANDPRODUCT_CONVERSION: "",
+  BRND_CONTRACT: "",
 };
 
 function makeMockFetch(): typeof globalThis.fetch {

@@ -11,37 +11,42 @@ import type { INaverAdsClient } from "../src/api/types.js";
 // TSV fixtures by reportTp
 // ---------------------------------------------------------------------------
 
+// stat-report v2 responses are header-less raw TSV. Column order per reportTp
+// is defined by COLUMN_MAPS in src/api/stat-reports.ts (verified via /stats
+// cross-check). Fixtures here mirror that schema.
+
+// AD: statDt | customerId | nccCampaignId | nccAdgroupId | nccKeywordId
+//   | nccAdId | businessChannelId | _u8 | pcMblTp | impCnt | clkCnt
+//   | salesAmt | avgRnkWeighted | _u14
+// avgRnkWeighted = avgRnk × impCnt → 3.5*1000=3500, 1.8*2000=3600
+const AD_FIXTURE =
+  [
+    "20260206\t111\tcmp-1\tag-1\tkw-1\tad-1\tbsn-1\t0\tP\t1000\t10\t11000\t3500\t0",
+    "20260206\t111\tcmp-1\tag-1\tkw-1\tad-1\tbsn-1\t0\tM\t2000\t30\t33000\t3600\t0",
+  ].join("\n") + "\n";
+
+// AD_CONVERSION: statDt | customerId | nccCampaignId | nccAdgroupId
+//   | nccKeywordId | nccAdId | businessChannelId | _u8 | pcMblTp | _u10
+//   | convTpName | ccnt | convAmt
+// `lead` → 신청완료 per CONV_TP_TO_COL
+const AD_CONVERSION_FIXTURE =
+  "20260206\t111\tcmp-1\tag-1\tkw-1\tad-1\tbsn-1\t0\tP\t0\tlead\t1\t50000\n";
+
+// AD_DETAIL: 16 cols (adds 2 _unused sub-detail codes at col8/9)
+const AD_DETAIL_FIXTURE =
+  "20260206\t111\tcmp-1\tag-1\tkw-1\tad-1\tbsn-1\t13\t02\t0\tP\t100\t5\t1500\t110\t0\n";
+
 const TSV_BY_REPORT_TP: Record<string, string> = {
-  AD:
-    [
-      "statDt\tnccCampaignId\tnccAdgroupId\tpcMblTp\timpCnt\tclkCnt\tsalesAmt\tavgRnk",
-      "20260206\tcmp-1\tag-1\tPC\t1000\t10\t11000\t3.5",
-      "20260206\tcmp-1\tag-1\tMO\t2000\t30\t33000\t1.8",
-    ].join("\n") + "\n",
-
-  AD_CONVERSION:
-    [
-      "statDt\tnccCampaignId\tnccAdgroupId\tpcMblTp\tconvTpCd\tccnt\tconvAmt",
-      "20260206\tcmp-1\tag-1\tPC\t3\t1\t50000",
-    ].join("\n") + "\n",
-
-  AD_DETAIL:
-    [
-      "statDt\tnccCampaignId\tnccAdgroupId\tpcMblTp\tnccKeywordId\tkeyword\timpCnt\tclkCnt\tsalesAmt\tavgRnk",
-      "20260206\tcmp-1\tag-1\tPC\tkw-1\t헬로맥스\t100\t5\t1500\t1.1",
-    ].join("\n") + "\n",
-
-  AD_CONVERSION_DETAIL:
-    [
-      "statDt\tnccCampaignId\tnccAdgroupId\tpcMblTp\tnccKeywordId\tkeyword\tconvTpCd\tccnt\tconvAmt",
-    ].join("\n") + "\n",
-
-  EXPKEYWORD: "statDt\timpCnt\n",
-  SHOPPINGKEYWORD_DETAIL: "header\n",
-  SHOPPINGKEYWORD_CONVERSION_DETAIL: "header\n",
-  SHOPPINGBRANDPRODUCT: "header\n",
-  SHOPPINGBRANDPRODUCT_CONVERSION: "header\n",
-  BRND_CONTRACT: "header\n",
+  AD: AD_FIXTURE,
+  AD_CONVERSION: AD_CONVERSION_FIXTURE,
+  AD_DETAIL: AD_DETAIL_FIXTURE,
+  AD_CONVERSION_DETAIL: "",
+  EXPKEYWORD: "",
+  SHOPPINGKEYWORD_DETAIL: "",
+  SHOPPINGKEYWORD_CONVERSION_DETAIL: "",
+  SHOPPINGBRANDPRODUCT: "",
+  SHOPPINGBRANDPRODUCT_CONVERSION: "",
+  BRND_CONTRACT: "",
 };
 
 // ---------------------------------------------------------------------------

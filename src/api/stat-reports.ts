@@ -28,7 +28,7 @@ export interface StatReportRequest {
   };
 }
 
-export interface StatReportResult<TRow = Record<string, string>> {
+export interface StatReportResult<TRow = Record<string, unknown>> {
   rows: TRow[];
   reportTp: ReportType;
   statDt: string;
@@ -48,6 +48,16 @@ export class StatReportFailedError extends Error {
   constructor(reportJobId: number, status: string) {
     super(`StatReport job ${reportJobId} failed with status=${status}`);
     this.name = "StatReportFailedError";
+  }
+}
+
+export class UnsupportedReportTypeError extends Error {
+  constructor(reportTp: string) {
+    super(
+      `parseTsv: column spec not yet verified for reportTp=${reportTp}. ` +
+        `Verify against /stats and add a column map in COLUMN_MAPS before use.`,
+    );
+    this.name = "UnsupportedReportTypeError";
   }
 }
 
@@ -98,7 +108,7 @@ async function pollUntilBuilt(
   }
 }
 
-export async function requestStatReport<TRow = Record<string, string>>(
+export async function requestStatReport<TRow = Record<string, unknown>>(
   req: StatReportRequest,
 ): Promise<StatReportResult<TRow>> {
   const { client, reportTp, statDt } = req;
@@ -123,26 +133,172 @@ export async function requestStatReport<TRow = Record<string, string>>(
   const buf = await client.downloadBinary(downloadUrl);
   const isGzip = buf.length >= 2 && buf[0] === 0x1f && buf[1] === 0x8b;
   const tsvText = (isGzip ? gunzipSync(buf) : buf).toString("utf-8");
-  const rows = parseTsv<TRow>(tsvText);
+  const rows = parseTsv<TRow>(tsvText, reportTp);
 
   return { rows, reportTp, statDt, reportJobId };
 }
 
-export function parseTsv<TRow = Record<string, string>>(text: string): TRow[] {
-  const lines = text.split("\n");
+// ---------------------------------------------------------------------------
+// Column specs (v2 stat-report responses are header-less raw TSV).
+// Verified against the synchronous /stats API on 2026-05-21 for the
+// hellomax account. See .claude-project/memory/stat-report-column-spec.md.
+// ---------------------------------------------------------------------------
 
-  // Find non-empty lines
+type ColField = string;
+
+interface ColumnMap {
+  expectedColCount: number;
+  // Names per 0-indexed TSV column. "_unused" or "_unusedN" → discarded.
+  fields: readonly ColField[];
+}
+
+const COLUMN_MAPS: Partial<Record<ReportType, ColumnMap>> = {
+  AD: {
+    expectedColCount: 14,
+    fields: [
+      "statDt",
+      "customerId",
+      "nccCampaignId",
+      "nccAdgroupId",
+      "nccKeywordId",
+      "nccAdId",
+      "businessChannelId",
+      "_unused8",
+      "pcMblTp",
+      "impCnt",
+      "clkCnt",
+      "salesAmt",
+      "avgRnkWeighted",
+      "_unused14",
+    ],
+  },
+  AD_DETAIL: {
+    expectedColCount: 16,
+    fields: [
+      "statDt",
+      "customerId",
+      "nccCampaignId",
+      "nccAdgroupId",
+      "nccKeywordId",
+      "nccAdId",
+      "businessChannelId",
+      "_unused8",
+      "_unused9",
+      "_unused10",
+      "pcMblTp",
+      "impCnt",
+      "clkCnt",
+      "salesAmt",
+      "avgRnkWeighted",
+      "_unused16",
+    ],
+  },
+  AD_CONVERSION: {
+    expectedColCount: 13,
+    fields: [
+      "statDt",
+      "customerId",
+      "nccCampaignId",
+      "nccAdgroupId",
+      "nccKeywordId",
+      "nccAdId",
+      "businessChannelId",
+      "_unused8",
+      "pcMblTp",
+      "_unused10",
+      "convTpName",
+      "ccnt",
+      "convAmt",
+    ],
+  },
+  AD_CONVERSION_DETAIL: {
+    expectedColCount: 15,
+    fields: [
+      "statDt",
+      "customerId",
+      "nccCampaignId",
+      "nccAdgroupId",
+      "nccKeywordId",
+      "nccAdId",
+      "businessChannelId",
+      "_unused8",
+      "_unused9",
+      "_unused10",
+      "pcMblTp",
+      "_unused12",
+      "convTpName",
+      "ccnt",
+      "convAmt",
+    ],
+  },
+  EXPKEYWORD: {
+    expectedColCount: 12,
+    fields: [
+      "statDt",
+      "customerId",
+      "nccCampaignId",
+      "nccAdgroupId",
+      "searchTerm",
+      "_unused6",
+      "pcMblTp",
+      "avgRnkWeighted",
+      "impCnt",
+      "clkCnt",
+      "salesAmt",
+      "_unused12",
+    ],
+  },
+};
+
+// Fields whose value should be coerced to a number (Number.NaN → 0).
+const NUMERIC_FIELDS = new Set<ColField>([
+  "impCnt",
+  "clkCnt",
+  "salesAmt",
+  "avgRnkWeighted",
+  "ccnt",
+  "convAmt",
+]);
+
+function coerce(field: ColField, raw: string): unknown {
+  if (NUMERIC_FIELDS.has(field)) {
+    if (raw === "") return 0;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : 0;
+  }
+  return raw;
+}
+
+export function parseTsv<TRow = Record<string, unknown>>(
+  text: string,
+  reportTp: ReportType,
+): TRow[] {
+  const lines = text.split("\n");
   const nonEmpty = lines.filter((line) => line.trim() !== "");
+  // Empty body is fine for any reportTp — Naver returns "no rows" without a
+  // schema. Only block unverified reportTps when they actually have data.
   if (nonEmpty.length === 0) return [];
 
-  const headers = nonEmpty[0]!.split("\t").map((h) => h.trim());
-  const rows: TRow[] = [];
+  const spec = COLUMN_MAPS[reportTp];
+  if (!spec) throw new UnsupportedReportTypeError(reportTp);
 
-  for (let i = 1; i < nonEmpty.length; i++) {
-    const cells = nonEmpty[i]!.split("\t");
-    const row: Record<string, string> = {};
-    for (let j = 0; j < headers.length; j++) {
-      row[headers[j]!] = cells[j] ?? "";
+  const rows: TRow[] = [];
+  for (const line of nonEmpty) {
+    const cells = line.split("\t");
+    const row: Record<string, unknown> = {};
+    for (let j = 0; j < spec.fields.length; j++) {
+      const field = spec.fields[j]!;
+      if (field.startsWith("_unused")) continue;
+      const raw = (cells[j] ?? "").trim();
+      row[field] = coerce(field, raw);
+    }
+    // Derived: avgRnk = avgRnkWeighted / impCnt (0 if no impressions).
+    // Builder consumes `avgRnk` directly; downstream weighted-mean code can
+    // still recompute from impCnt × avgRnk if needed.
+    if ("avgRnkWeighted" in row && "impCnt" in row) {
+      const imp = row.impCnt as number;
+      const w = row.avgRnkWeighted as number;
+      row.avgRnk = imp > 0 ? w / imp : 0;
     }
     rows.push(row as TRow);
   }

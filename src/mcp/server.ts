@@ -53,6 +53,7 @@ import {
   type PrecomputedPayload,
   PrecomputedPayloadSchema,
   AiAnalysisSchema,
+  type KpiSummary,
 } from "../parser/types.js";
 import { parseHelloMaxXlsx } from "../parser/excel-template.js";
 import { aggregateWeeklyPayload } from "../parser/aggregate-payload.js";
@@ -430,7 +431,7 @@ export function createServer(deps: ServerDeps = {}): {
     const { reportTp, startDate, endDate, account } = args;
     const client = resolveClient(account);
     const dates = enumerateDates(startDate, endDate);
-    const allRows: Record<string, string>[] = [];
+    const allRows: Record<string, unknown>[] = [];
     for (const statDt of dates) {
       const result = await requestStatReport({
         client,
@@ -464,8 +465,8 @@ export function createServer(deps: ServerDeps = {}): {
 
     const fetchAll = async (
       reportTp: (typeof REPORT_TYPES)[number],
-    ): Promise<Record<string, string>[]> => {
-      const rows: Record<string, string>[] = [];
+    ): Promise<Record<string, unknown>[]> => {
+      const rows: Record<string, unknown>[] = [];
       for (const statDt of dates) {
         try {
           const result = await requestStatReport({
@@ -646,16 +647,150 @@ export function createServer(deps: ServerDeps = {}): {
   // prepare_daily_dashboard (US-020, Phase 3.5)
   // ---------------------------------------------------------------------------
 
+  // Maps a client_id (mappings) → account name (accountStore) by matching
+  // customer_id. Returns undefined when the mapping has placeholder
+  // customer_id ("TBD") or no matching account exists — caller decides whether
+  // to skip or surface a warning.
+  function findAccountForClient(clientId: string): string | undefined {
+    const mappings = getClientMappings();
+    const m = mappings.mappings.find((x) => x.client_id === clientId);
+    if (!m || !m.customer_id || m.customer_id === "TBD") return undefined;
+    // Use getStore() not deps.accountStore — env-only mode (production
+    // without explicit accountStore injection) builds the store lazily via
+    // credentialLoader. Reading deps.accountStore directly returns undefined
+    // and silently disables the live provider.
+    const store = getStore();
+    const entry = store.list().find((a) => a.customerId === m.customer_id);
+    return entry?.name;
+  }
+
+  // Default daily-payload provider: live API path. Fetches AD + AD_CONVERSION
+  // for [date-30, date], aggregates via aggregateDailyPayload.
+  async function defaultLiveDailyProvider(input: {
+    client: string;
+    date: string;
+  }): Promise<DailyPayload> {
+    const targetDate = input.date; // yyyy-mm-dd
+    const targetCompact = targetDate.replace(/-/g, "");
+    const dod = new Date(`${targetDate}T00:00:00Z`);
+    dod.setUTCDate(dod.getUTCDate() - 1);
+    const dodIso = dod.toISOString().slice(0, 10);
+    const dodCompact = dodIso.replace(/-/g, "");
+    const mom = new Date(`${targetDate}T00:00:00Z`);
+    mom.setUTCDate(mom.getUTCDate() - 30);
+    const momIso = mom.toISOString().slice(0, 10);
+    const momCompact = momIso.replace(/-/g, "");
+
+    const accountName = findAccountForClient(input.client);
+    if (!accountName) {
+      // Mapping missing or customer_id=TBD or no matching account — return
+      // empty payload with a warning rather than throwing, so other clients
+      // in the loop still process.
+      const empty = (): KpiSummary => ({
+        impressions: 0,
+        clicks: 0,
+        cost: 0,
+        conversions: 0,
+        revenue: 0,
+        roas: 0,
+      });
+      return {
+        advertiser: input.client,
+        target_date: targetDate,
+        compare_dod_date: dodIso,
+        compare_mom_date: momIso,
+        kpi_target: empty(),
+        kpi_dod: empty(),
+        kpi_mom: empty(),
+        deltas: {
+          dod_pct: {
+            impressions_pct: 0,
+            clicks_pct: 0,
+            cost_pct: 0,
+            conversions_pct: 0,
+            revenue_pct: 0,
+            roas_pct: 0,
+          },
+          mom_pct: {
+            impressions_pct: 0,
+            clicks_pct: 0,
+            cost_pct: 0,
+            conversions_pct: 0,
+            revenue_pct: 0,
+            roas_pct: 0,
+          },
+        },
+        derived: {
+          roas_mom_pct: null,
+          cpc_mom_pct: null,
+          impressions_dod_pct: null,
+        },
+        data_warnings: [
+          `client=${input.client}: 광고주-계정 매핑 없음 (customer_id 미설정)`,
+        ],
+      };
+    }
+
+    const apiClient = resolveClient(accountName);
+
+    // Only the 3 dates that matter for the aggregator.
+    const dates = [targetCompact, dodCompact, momCompact];
+    const [campaigns, adGroups] = await Promise.all([
+      getCampaigns(apiClient),
+      getAdGroups(apiClient),
+    ]);
+
+    const fetchOne = async (
+      reportTp: (typeof REPORT_TYPES)[number],
+    ): Promise<Record<string, unknown>[]> => {
+      const rows: Record<string, unknown>[] = [];
+      for (const statDt of dates) {
+        try {
+          const res = await requestStatReport({
+            client: apiClient,
+            reportTp,
+            statDt,
+          });
+          rows.push(...(res.rows as Record<string, unknown>[]));
+        } catch (err) {
+          if (err instanceof StatReportFailedError) continue;
+          throw err;
+        }
+      }
+      return rows;
+    };
+
+    const [adRows, adConvRows] = await Promise.all([
+      fetchOne("AD"),
+      fetchOne("AD_CONVERSION"),
+    ]);
+
+    const rawDaily = await buildDailyRaw({
+      startDate: momCompact,
+      endDate: targetCompact,
+      fetched: { op: adRows, conv: adConvRows, campaigns, adGroups },
+    });
+
+    return aggregateDailyPayload({
+      advertiser: input.client,
+      // RawRowBase shape is structurally compatible with DailyRawJsonRow
+      // (same field names + numeric/string types). The interface adds an
+      // `[k: string]: unknown` index signature for forward compatibility,
+      // which RawRowBase doesn't declare; cast is safe.
+      rows: rawDaily as unknown as Parameters<
+        typeof aggregateDailyPayload
+      >[0]["rows"],
+      targetDate,
+      compareDateDoD: dodIso,
+      compareDateMoM: momIso,
+    });
+  }
+
   const tool_prepare_daily_dashboard = async (
     args: z.infer<typeof PrepareDailySchema>,
   ): Promise<unknown> => {
     const mappings = getClientMappings();
-    const provider = deps.dailyPayloadProvider;
-    if (!provider) {
-      throw new Error(
-        "prepare_daily_dashboard requires a dailyPayloadProvider (test injection); live buildDailyRaw wiring is not yet implemented.",
-      );
-    }
+    const provider = deps.dailyPayloadProvider ?? defaultLiveDailyProvider;
 
     const summary: { client: string; violation_count: number }[] = [];
     const allViolations: (ThresholdViolation & { client: string })[] = [];

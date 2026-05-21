@@ -20,8 +20,8 @@
 - [layer-schema-duplication-ok.md](layer-schema-duplication-ok.md) — L4 config가 L2 스키마 필드를 재선언하는 duplication은 레이어 방향 위반 방지를 위해 의도적 허용
 - [history-schema-dual-mode-debt.md](history-schema-dual-mode-debt.md) — HistoryEntrySchema week 필드의 YYYY-Www/YYYY-MM-DD dual-mode는 단기 타협; 데일리 전용 필드 3개+ 시 분리 예정
 - [daily-history-per-client-always.md](daily-history-per-client-always.md) — prepare_daily_dashboard는 violation_count 무관 매핑된 광고주당 1건 history 기록 (audit trail 우선, commit f0442ed 이후)
-- [parsetsv-header-bug.md](parsetsv-header-bug.md) — parseTsv가 v2 응답 첫 줄을 header로 가정 → 모든 RAW 시트 silent corruption ('unknown'/NaN). reportTp별 column 순서 매핑 필요
 - [stat-reports-signed-download.md](stat-reports-signed-download.md) — stat-report 다운로드 URL은 HMAC 서명 필수 + v2 응답은 plain TSV (비압축). path-only 서명, gzip magic-byte 조건부 분기
+- [stat-report-column-spec.md](stat-report-column-spec.md) — stat-report v2 reportTp별 column 순서 (5/10 검증: AD, AD_DETAIL, AD_CONVERSION, AD_CONVERSION_DETAIL, EXPKEYWORD). /stats cross-check 완료
 - [weekly-dashboard-3tool-flow.md](weekly-dashboard-3tool-flow.md) — prepare_weekly_dashboard → 3-tool 분리 (prepare_weekly_payload + generate_weekly_analysis_prompt + finalize_weekly_dashboard). Anthropic 의존성 제거, host Claude가 분석 담당
 
 ## Reference

@@ -7,7 +7,24 @@ import {
   REPORT_TYPES,
   StatReportTimeoutError,
   StatReportFailedError,
+  UnsupportedReportTypeError,
 } from "../src/api/stat-reports.js";
+
+// Real-shape AD v2 row: 14 cols, no header.
+// Columns: statDt, customerId, nccCampaignId, nccAdgroupId, nccKeywordId,
+//   nccAdId, businessChannelId, _u8, pcMblTp, impCnt, clkCnt, salesAmt,
+//   avgRnkWeighted, _u14
+const AD_TWO_ROWS =
+  "20260512\t111\tcmp-1\tag-1\tkw-1\tad-1\tbsn-1\t0\tP\t1000\t10\t11000\t3500\t0\n" +
+  "20260512\t111\tcmp-1\tag-1\tkw-1\tad-1\tbsn-1\t0\tM\t2000\t30\t33000\t3600\t0\n";
+
+// Real-shape AD_CONVERSION v2 row: 13 cols, no header, convTpName string.
+const AD_CONVERSION_ONE_ROW =
+  "20260512\t111\tcmp-1\tag-1\tkw-1\tad-1\tbsn-1\t0\tP\t0\tlead\t1\t50000\n";
+
+// Real-shape EXPKEYWORD v2 row: 12 cols, no header, searchTerm string.
+const EXPKEYWORD_ONE_ROW =
+  "20260512\t111\tcmp-1\tag-1\t네이버광고\t27758\tP\t72\t20\t3\t5000\t0\n";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -59,40 +76,82 @@ describe("US-005 REPORT_TYPES", () => {
 // ---------------------------------------------------------------------------
 
 describe("US-005 parseTsv()", () => {
-  it("parses a simple TSV with header and one row", () => {
-    const rows = parseTsv("header1\theader2\nval1\tval2\n");
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toEqual({ header1: "val1", header2: "val2" });
-  });
-
-  it("handles trailing newline without creating empty row", () => {
-    const rows = parseTsv("h1\th2\nv1\tv2\n");
-    expect(rows).toHaveLength(1);
-  });
-
-  it("handles empty string input", () => {
-    const rows = parseTsv("");
-    expect(rows).toHaveLength(0);
-  });
-
-  it("trims whitespace from headers", () => {
-    const rows = parseTsv(" 키워드 \t 노출수 \n광고\t100\n");
-    expect(rows[0]).toHaveProperty("키워드", "광고");
-    expect(rows[0]).toHaveProperty("노출수", "100");
-  });
-
-  it("parses Korean TSV correctly", () => {
-    const tsv = "키워드\t노출수\t클릭수\n광고\t100\t10\n";
-    const rows = parseTsv(tsv);
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toEqual({ 키워드: "광고", 노출수: "100", 클릭수: "10" });
-  });
-
-  it("handles multiple rows", () => {
-    const tsv = "a\tb\nv1\tv2\nv3\tv4\n";
-    const rows = parseTsv(tsv);
+  it("maps AD v2 row by column index (no header)", () => {
+    const rows = parseTsv<Record<string, unknown>>(AD_TWO_ROWS, "AD");
     expect(rows).toHaveLength(2);
-    expect(rows[1]).toEqual({ a: "v3", b: "v4" });
+    expect(rows[0]).toMatchObject({
+      statDt: "20260512",
+      customerId: "111",
+      nccCampaignId: "cmp-1",
+      nccAdgroupId: "ag-1",
+      nccKeywordId: "kw-1",
+      nccAdId: "ad-1",
+      businessChannelId: "bsn-1",
+      pcMblTp: "P",
+      impCnt: 1000,
+      clkCnt: 10,
+      salesAmt: 11000,
+      avgRnkWeighted: 3500,
+      avgRnk: 3.5, // 3500 / 1000
+    });
+    expect(rows[0]).not.toHaveProperty("_unused8");
+    expect(rows[0]).not.toHaveProperty("_unused14");
+    expect(rows[1]).toMatchObject({ pcMblTp: "M", impCnt: 2000, clkCnt: 30 });
+  });
+
+  it("maps AD_CONVERSION v2 row with convTpName string", () => {
+    const rows = parseTsv<Record<string, unknown>>(
+      AD_CONVERSION_ONE_ROW,
+      "AD_CONVERSION",
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      statDt: "20260512",
+      nccCampaignId: "cmp-1",
+      pcMblTp: "P",
+      convTpName: "lead",
+      ccnt: 1,
+      convAmt: 50000,
+    });
+  });
+
+  it("maps EXPKEYWORD v2 row (different col order — avgRnkW before impCnt)", () => {
+    const rows = parseTsv<Record<string, unknown>>(
+      EXPKEYWORD_ONE_ROW,
+      "EXPKEYWORD",
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      searchTerm: "네이버광고",
+      pcMblTp: "P",
+      avgRnkWeighted: 72,
+      impCnt: 20,
+      clkCnt: 3,
+      salesAmt: 5000,
+      avgRnk: 72 / 20, // = 3.6
+    });
+  });
+
+  it("handles empty string input for any reportTp", () => {
+    expect(parseTsv("", "AD")).toHaveLength(0);
+    expect(parseTsv("", "SHOPPINGKEYWORD_DETAIL")).toHaveLength(0);
+  });
+
+  it("ignores blank trailing lines", () => {
+    expect(parseTsv(AD_TWO_ROWS + "\n\n", "AD")).toHaveLength(2);
+  });
+
+  it("throws UnsupportedReportTypeError for reportTp without verified column spec", () => {
+    expect(() => parseTsv("20260512\tfoo\n", "SHOPPINGKEYWORD_DETAIL")).toThrow(
+      UnsupportedReportTypeError,
+    );
+  });
+
+  it("avgRnk defaults to 0 when impCnt is 0", () => {
+    const noImps =
+      "20260512\t111\tcmp-1\tag-1\tkw-1\tad-1\tbsn-1\t0\tP\t0\t0\t0\t0\t0\n";
+    const rows = parseTsv<Record<string, unknown>>(noImps, "AD");
+    expect(rows[0]?.avgRnk).toBe(0);
   });
 });
 
@@ -223,8 +282,10 @@ describe("US-005 requestStatReport()", () => {
     expect(timerAdvances[1]).toBe(200);
   });
 
-  it("downloads downloadUrl, gunzips and parses TSV into rows", async () => {
-    const tsv = "header1\theader2\nval1\tval2\n";
+  it("downloads downloadUrl, gunzips and parses AD_DETAIL TSV into rows", async () => {
+    // AD_DETAIL: 16 cols
+    const tsv =
+      "20260501\t111\tcmp-1\tag-1\tkw-1\tad-1\tbsn-1\t13\t02\t0\tP\t100\t5\t1500\t110\t0\n";
     const gzBuffer = makeGzBuffer(tsv);
     const client = makeMockClient(
       { reportJobId: 1, status: "REGIST" },
@@ -252,12 +313,18 @@ describe("US-005 requestStatReport()", () => {
       "https://cdn.example.com/file.gz",
     );
     expect(result.rows).toHaveLength(1);
-    expect(result.rows[0]).toEqual({ header1: "val1", header2: "val2" });
+    expect(result.rows[0]).toMatchObject({
+      statDt: "20260501",
+      nccCampaignId: "cmp-1",
+      pcMblTp: "P",
+      impCnt: 100,
+      clkCnt: 5,
+      salesAmt: 1500,
+    });
   });
 
   it("handles plain TSV downloads (no gzip magic bytes)", async () => {
-    const tsv = "h1\th2\nval1\tval2\n";
-    const plainBuffer = Buffer.from(tsv, "utf-8");
+    const plainBuffer = Buffer.from(AD_TWO_ROWS, "utf-8");
     const client = makeMockClient(
       { reportJobId: 2, status: "REGIST" },
       [
@@ -279,13 +346,12 @@ describe("US-005 requestStatReport()", () => {
 
     await vi.runAllTimersAsync();
     const result = await promise;
-    expect(result.rows).toHaveLength(1);
-    expect(result.rows[0]).toEqual({ h1: "val1", h2: "val2" });
+    expect(result.rows).toHaveLength(2);
+    expect(result.rows[0]).toMatchObject({ impCnt: 1000, clkCnt: 10 });
   });
 
-  it("parses Korean TSV correctly through the full flow", async () => {
-    const tsv = "키워드\t노출수\t클릭수\n광고\t100\t10\n";
-    const gzBuffer = makeGzBuffer(tsv);
+  it("parses Korean searchTerm in EXPKEYWORD through the full flow", async () => {
+    const gzBuffer = makeGzBuffer(EXPKEYWORD_ONE_ROW);
     const client = makeMockClient(
       { reportJobId: 55, status: "REGIST" },
       [
@@ -309,10 +375,11 @@ describe("US-005 requestStatReport()", () => {
     const result = await promise;
 
     expect(result.rows).toHaveLength(1);
-    expect(result.rows[0]).toEqual({
-      키워드: "광고",
-      노출수: "100",
-      클릭수: "10",
+    expect(result.rows[0]).toMatchObject({
+      searchTerm: "네이버광고",
+      impCnt: 20,
+      clkCnt: 3,
+      salesAmt: 5000,
     });
   });
 
