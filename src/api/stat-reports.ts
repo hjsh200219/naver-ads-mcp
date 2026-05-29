@@ -68,7 +68,10 @@ interface StatReportJobResponse {
 }
 
 const DEFAULT_POLL = {
-  initialDelayMs: 1_000,
+  // 250ms first poll: most stat-report jobs build in well under a second, so a
+  // 1s initial wait dominated latency. Exponential backoff (×2 → 30s cap) still
+  // backs off for slow large-advertiser jobs.
+  initialDelayMs: 250,
   maxDelayMs: 30_000,
   totalTimeoutMs: 600_000,
 };

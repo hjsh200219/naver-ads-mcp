@@ -148,8 +148,8 @@ async function callHandler<T>(
   return await handler({ method, params }, {});
 }
 
-describe("weekly dashboard 3-tool pipeline", () => {
-  it("tools/list registers prepare_weekly_payload, generate_weekly_analysis_prompt, finalize_weekly_dashboard", async () => {
+describe("weekly dashboard 2-tool pipeline", () => {
+  it("tools/list registers prepare_weekly_payload + finalize_weekly_dashboard (no separate prompt tool)", async () => {
     const { server } = createServer({
       client: stub,
       historyBaseDir: workDir,
@@ -162,14 +162,14 @@ describe("weekly dashboard 3-tool pipeline", () => {
     );
     const names = out.tools.map((t) => t.name);
     expect(names).toContain("prepare_weekly_payload");
-    expect(names).toContain("generate_weekly_analysis_prompt");
     expect(names).toContain("finalize_weekly_dashboard");
+    expect(names).not.toContain("generate_weekly_analysis_prompt");
     expect(names).not.toContain("prepare_weekly_dashboard");
   });
 });
 
 describe("prepare_weekly_payload", () => {
-  it("returns payload + payload_summary_md via payloadProvider", async () => {
+  it("returns payload + payload_summary_md + bundled analysis prompts via payloadProvider", async () => {
     const { tools } = createServer({
       client: stub,
       historyBaseDir: workDir,
@@ -179,10 +179,23 @@ describe("prepare_weekly_payload", () => {
     const r = (await tools.prepare_weekly_payload({
       client: "bishef",
       week: "2026-W17",
-    })) as { payload: PrecomputedPayload; payload_summary_md: string };
+    })) as {
+      payload: PrecomputedPayload;
+      payload_summary_md: string;
+      system_prompt: string;
+      user_prompt: string;
+      expected_schema: Record<string, unknown>;
+    };
     expect(r.payload.advertiser).toBe("비셰프");
     expect(r.payload_summary_md).toContain("비셰프");
     expect(r.payload_summary_md).toContain("ROAS");
+    // 2-hop merge: analysis prompts are bundled here (no separate prompt tool).
+    expect(r.system_prompt).toContain("네이버 검색광고");
+    expect(JSON.parse(r.user_prompt).advertiser).toBe("비셰프");
+    expect(r.expected_schema.type).toBe("object");
+    expect((r.expected_schema as { required: string[] }).required).toContain(
+      "review_text",
+    );
   });
 
   it("returns payload via xlsx parser path", async () => {
@@ -244,49 +257,6 @@ describe("prepare_weekly_payload", () => {
       "브랜드검색 영역별 성과: Naver API 미제공",
     );
     expect(r.payload_summary_md).toContain("데이터 경고");
-  });
-});
-
-describe("generate_weekly_analysis_prompt", () => {
-  it("returns system_prompt, user_prompt, expected_schema", async () => {
-    const { tools } = createServer({
-      client: stub,
-      historyBaseDir: workDir,
-      reportsBaseDir: workDir,
-    });
-    const r = (await tools.generate_weekly_analysis_prompt({
-      payload: SAMPLE_PAYLOAD,
-    })) as {
-      system_prompt: string;
-      user_prompt: string;
-      expected_schema: Record<string, unknown>;
-    };
-    expect(r.system_prompt).toContain("네이버 검색광고");
-    expect(JSON.parse(r.user_prompt).advertiser).toBe("비셰프");
-    expect(r.expected_schema.type).toBe("object");
-    expect((r.expected_schema as { required: string[] }).required).toContain(
-      "review_text",
-    );
-  });
-
-  it("rejects malformed payload via zod", async () => {
-    const { server } = createServer({
-      client: stub,
-      historyBaseDir: workDir,
-      reportsBaseDir: workDir,
-    });
-    const out = await callHandler<{
-      content: Array<{ text: string }>;
-      isError?: boolean;
-    }>(
-      server as unknown as { _requestHandlers: Map<string, unknown> },
-      CallToolRequestSchema.shape.method.value,
-      {
-        name: "generate_weekly_analysis_prompt",
-        arguments: { payload: { advertiser: "x" } },
-      },
-    );
-    expect(out.isError).toBe(true);
   });
 });
 

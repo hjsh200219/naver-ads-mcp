@@ -59,6 +59,10 @@ import {
   deriveWeek,
 } from "../util/dates.js";
 import {
+  mapWithConcurrency,
+  CONCURRENT_STAT_JOBS,
+} from "../util/concurrency.js";
+import {
   buildSystemPrompt,
   buildUserPrompt,
   buildPayloadSummaryMd,
@@ -166,12 +170,6 @@ const PrepareWeeklyPayloadSchema = z
   })
   .strict();
 
-const GenerateWeeklyPromptSchema = z
-  .object({
-    payload: PrecomputedPayloadSchema,
-  })
-  .strict();
-
 const FinalizeWeeklySchema = z
   .object({
     account: AccountSchema,
@@ -269,9 +267,6 @@ export function createServer(deps: ServerDeps = {}): {
     ) => Promise<unknown>;
     prepare_weekly_payload: (
       args: z.infer<typeof PrepareWeeklyPayloadSchema>,
-    ) => Promise<unknown>;
-    generate_weekly_analysis_prompt: (
-      args: z.infer<typeof GenerateWeeklyPromptSchema>,
     ) => Promise<unknown>;
     finalize_weekly_dashboard: (
       args: z.infer<typeof FinalizeWeeklySchema>,
@@ -659,6 +654,12 @@ export function createServer(deps: ServerDeps = {}): {
     return {
       payload,
       payload_summary_md: buildPayloadSummaryMd(payload),
+      // Analysis prompts are bundled here so the host LLM can produce the
+      // AiAnalysis directly, then call finalize_weekly_dashboard — no separate
+      // prompt-generation tool call (2-hop pipeline, not 3).
+      system_prompt: buildSystemPrompt(),
+      user_prompt: buildUserPrompt(payload),
+      expected_schema: EXPECTED_AI_ANALYSIS_SCHEMA,
     };
   };
 
@@ -686,41 +687,52 @@ export function createServer(deps: ServerDeps = {}): {
     ]);
 
     const todayCompact = toYmdCompact(new Date());
-    const fetchByDay = async (
-      reportTp: (typeof REPORT_TYPES)[number],
-    ): Promise<Record<string, unknown>[]> => {
-      const rows: Record<string, unknown>[] = [];
+    // Flatten (reportTp × day) into one task list — skipping future dates up
+    // front — then fetch concurrently with a bounded pool. This overlaps the
+    // per-job poll waits (the dominant cost) instead of serializing 14 days.
+    const tasks: { reportTp: (typeof REPORT_TYPES)[number]; statDt: string }[] =
+      [];
+    for (const reportTp of ["AD", "AD_CONVERSION"] as const) {
       for (const statDt of enumerateDates(startDate, endDate)) {
-        // Skip future dates — Naver API returns 400 for statDt > today.
-        if (statDt > todayCompact) continue;
-        try {
-          const res = await requestStatReport({
-            client: apiClient,
-            reportTp,
-            statDt,
-          });
-          rows.push(...(res.rows as Record<string, unknown>[]));
-        } catch (err) {
-          if (err instanceof StatReportFailedError) continue;
-          // Treat 4xx (e.g. invalid statDt, no data) as skippable per-day; only
-          // re-throw on network / 5xx so weekly aggregation degrades gracefully.
-          if (
-            err instanceof NaverAdsApiError &&
-            err.status >= 400 &&
-            err.status < 500
-          ) {
-            continue;
-          }
-          throw err;
-        }
+        if (statDt > todayCompact) continue; // Naver returns 400 for future statDt
+        tasks.push({ reportTp, statDt });
       }
-      return rows;
+    }
+
+    const fetchOneDay = async (task: {
+      reportTp: (typeof REPORT_TYPES)[number];
+      statDt: string;
+    }): Promise<Record<string, unknown>[]> => {
+      try {
+        const res = await requestStatReport({ client: apiClient, ...task });
+        return res.rows as Record<string, unknown>[];
+      } catch (err) {
+        // Treat per-day FAILED/4xx (invalid statDt, no data) as empty so
+        // weekly aggregation degrades gracefully; only network/5xx aborts.
+        if (err instanceof StatReportFailedError) return [];
+        if (
+          err instanceof NaverAdsApiError &&
+          err.status >= 400 &&
+          err.status < 500
+        ) {
+          return [];
+        }
+        throw err;
+      }
     };
 
-    const [adRows, adConvRows] = await Promise.all([
-      fetchByDay("AD"),
-      fetchByDay("AD_CONVERSION"),
-    ]);
+    const perTask = await mapWithConcurrency(
+      tasks,
+      CONCURRENT_STAT_JOBS,
+      fetchOneDay,
+    );
+    const adRows: Record<string, unknown>[] = [];
+    const adConvRows: Record<string, unknown>[] = [];
+    tasks.forEach((task, i) => {
+      (task.reportTp === "AD" ? adRows : adConvRows).push(
+        ...(perTask[i] ?? []),
+      );
+    });
 
     const rawDaily = await buildDailyRaw({
       startDate,
@@ -737,16 +749,6 @@ export function createServer(deps: ServerDeps = {}): {
       compareWeek: compareWeekLabel,
     });
   }
-
-  const tool_generate_weekly_analysis_prompt = async (
-    args: z.infer<typeof GenerateWeeklyPromptSchema>,
-  ): Promise<unknown> => {
-    return {
-      system_prompt: buildSystemPrompt(),
-      user_prompt: buildUserPrompt(args.payload),
-      expected_schema: EXPECTED_AI_ANALYSIS_SCHEMA,
-    };
-  };
 
   const tool_finalize_weekly_dashboard = async (
     args: z.infer<typeof FinalizeWeeklySchema>,
@@ -1064,7 +1066,7 @@ export function createServer(deps: ServerDeps = {}): {
       {
         name: "generate_report",
         description:
-          "Generate a full 10-sheet Excel report (.xlsx) for a date range — raw audit dump (SUMMARY / 매체/키워드/상품/검색어 성과 / 브랜드검색 hidden / 4 RAW sheets). NO AI analysis, NO html dashboard. STOP — BEFORE CALLING THIS TOOL: if the user said '리포트' / '주간 리포트' / 'report' / 'weekly report' without explicitly choosing the format, you MUST first ASK them which of the two output formats they want and wait for their answer: (A) raw 10-sheet audit xlsx (this tool, fast, no analysis) or (B) weekly dashboard with AI analysis + html preview + 광고주 발송용 xlsx (prepare_weekly_payload → generate_weekly_analysis_prompt → finalize_weekly_dashboard). Do NOT assume — even '이번주 hellomax 리포트' is ambiguous between these two formats. Only proceed with generate_report when the user explicitly picks (A) or says 'raw audit' / '원시 데이터' / '10시트'. RECOMMENDED: omit outputPath — file is saved to ./reports/<account>/<account>_<startDate>_<endDate>.xlsx on the MCP server host machine. IMPORTANT: outputPath must be an absolute path on the MCP server host (not the calling LLM's sandbox like /home/claude or /mnt/user-data). When omitted, the default reports/ directory is auto-created.",
+          "Generate a full 10-sheet Excel report (.xlsx) for a date range — raw audit dump (SUMMARY / 매체/키워드/상품/검색어 성과 / 브랜드검색 hidden / 4 RAW sheets). NO AI analysis, NO html dashboard. STOP — BEFORE CALLING THIS TOOL: if the user said '리포트' / '주간 리포트' / 'report' / 'weekly report' without explicitly choosing the format, you MUST first ASK them which of the two output formats they want and wait for their answer: (A) raw 10-sheet audit xlsx (this tool, fast, no analysis) or (B) weekly dashboard with AI analysis + html preview + 광고주 발송용 xlsx (prepare_weekly_payload → finalize_weekly_dashboard). Do NOT assume — even '이번주 hellomax 리포트' is ambiguous between these two formats. Only proceed with generate_report when the user explicitly picks (A) or says 'raw audit' / '원시 데이터' / '10시트'. RECOMMENDED: omit outputPath — file is saved to ./reports/<account>/<account>_<startDate>_<endDate>.xlsx on the MCP server host machine. IMPORTANT: outputPath must be an absolute path on the MCP server host (not the calling LLM's sandbox like /home/claude or /mnt/user-data). When omitted, the default reports/ directory is auto-created.",
         inputSchema: {
           type: "object",
           properties: {
@@ -1083,7 +1085,7 @@ export function createServer(deps: ServerDeps = {}): {
       {
         name: "prepare_weekly_payload",
         description:
-          "Stage 1/3 of the weekly report pipeline. Builds a PrecomputedPayload + Markdown digest from live API (default) or helloMAX form xlsx (when xlsxPath is given). STOP — BEFORE CALLING THIS TOOL: if the user said '리포트' / '주간 리포트' / 'report' / 'weekly report' without explicitly choosing the format, you MUST first ASK them which output format they want and wait for their answer: (A) raw 10-sheet audit xlsx (generate_report, fast, no analysis) or (B) weekly dashboard with AI analysis + html preview + 광고주 발송용 xlsx (this 3-tool pipeline). Do NOT assume — even '이번주 hellomax 리포트' is ambiguous between these two formats. Only proceed with this tool when the user explicitly picks (B) or says 'dashboard' / '대시보드' / 'AI 분석' / '주간 보고서' (광고주 발송).",
+          "Stage 1/2 of the weekly report pipeline. Builds a PrecomputedPayload + Markdown digest from live API (default) or helloMAX form xlsx (when xlsxPath is given), AND bundles the analysis prompts: returns {payload, payload_summary_md, system_prompt, user_prompt, expected_schema}. IMPORTANT: YOU (the calling LLM) are the analyst — read system_prompt + user_prompt as if addressed to you, produce the AiAnalysis JSON yourself (matching expected_schema), then pass it to finalize_weekly_dashboard. Do NOT call any external Anthropic/OpenAI API and do NOT look for a separate prompt-generation tool — the prompts are already here. STOP — BEFORE CALLING THIS TOOL: if the user said '리포트' / '주간 리포트' / 'report' / 'weekly report' without explicitly choosing the format, you MUST first ASK them which output format they want and wait for their answer: (A) raw 10-sheet audit xlsx (generate_report, fast, no analysis) or (B) weekly dashboard with AI analysis + html preview + 광고주 발송용 xlsx (this 2-tool pipeline). Do NOT assume — even '이번주 hellomax 리포트' is ambiguous between these two formats. Only proceed with this tool when the user explicitly picks (B) or says 'dashboard' / '대시보드' / 'AI 분석' / '주간 보고서' (광고주 발송).",
         inputSchema: {
           type: "object",
           properties: {
@@ -1119,25 +1121,9 @@ export function createServer(deps: ServerDeps = {}): {
         },
       },
       {
-        name: "generate_weekly_analysis_prompt",
-        description:
-          "Stage 2/3 of the weekly report pipeline. Returns {system_prompt, user_prompt, expected_schema}. IMPORTANT: YOU (the calling LLM) are the analyst. Read system_prompt + user_prompt as if they were addressed to you, then produce the AiAnalysis JSON yourself (matching expected_schema). Do NOT call any external Anthropic/OpenAI API — the prompts are pre-built for you to consume directly. Pass your AiAnalysis to finalize_weekly_dashboard.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            payload: {
-              type: "object",
-              description:
-                "PrecomputedPayload returned by prepare_weekly_payload.",
-            },
-          },
-          required: ["payload"],
-        },
-      },
-      {
         name: "finalize_weekly_dashboard",
         description:
-          "Stage 3/3 of the weekly report pipeline. Validates the host-provided AiAnalysis, renders 광고주 발송용 html/xlsx + AE preview artifact, appends a history entry, and returns the file paths and payload_hash. Files are ALWAYS saved on the MCP server host at ./reports/<client>/<client>_<week>.{html,xlsx} (not the caller's sandbox). The returned html_path/xlsx_path are host-machine paths the AE opens locally. IMPORTANT FOR CLAUDE DESKTOP: render the returned `artifact_html` (a complete standalone HTML document) as a Claude artifact with type=text/html so the AE can preview the report inline before sending. Do NOT paste the raw HTML into chat text.",
+          "Stage 2/2 of the weekly report pipeline. Validates the host-provided AiAnalysis, renders 광고주 발송용 html/xlsx + AE preview artifact, appends a history entry, and returns the file paths and payload_hash. Files are ALWAYS saved on the MCP server host at ./reports/<client>/<client>_<week>.{html,xlsx} (not the caller's sandbox). The returned html_path/xlsx_path are host-machine paths the AE opens locally. IMPORTANT FOR CLAUDE DESKTOP: render the returned `artifact_html` (a complete standalone HTML document) as a Claude artifact with type=text/html so the AE can preview the report inline before sending. Do NOT paste the raw HTML into chat text.",
         inputSchema: {
           type: "object",
           properties: {
@@ -1160,7 +1146,7 @@ export function createServer(deps: ServerDeps = {}): {
             ai_analysis: {
               type: "object",
               description:
-                "AiAnalysis the host LLM produced from generate_weekly_analysis_prompt.",
+                "AiAnalysis the host LLM produced from the prompts bundled in prepare_weekly_payload.",
             },
             correction: {
               type: "boolean",
@@ -1232,12 +1218,6 @@ export function createServer(deps: ServerDeps = {}): {
             PrepareWeeklyPayloadSchema,
             rawArgs,
             tool_prepare_weekly_payload,
-          );
-        case "generate_weekly_analysis_prompt":
-          return runValidated(
-            GenerateWeeklyPromptSchema,
-            rawArgs,
-            tool_generate_weekly_analysis_prompt,
           );
         case "finalize_weekly_dashboard":
           return runValidated(
@@ -1356,7 +1336,6 @@ export function createServer(deps: ServerDeps = {}): {
       fetch_raw_data: tool_fetch_raw_data,
       generate_report: tool_generate_report,
       prepare_weekly_payload: tool_prepare_weekly_payload,
-      generate_weekly_analysis_prompt: tool_generate_weekly_analysis_prompt,
       finalize_weekly_dashboard: tool_finalize_weekly_dashboard,
       prepare_daily_dashboard: tool_prepare_daily_dashboard,
     },

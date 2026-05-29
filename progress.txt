@@ -123,3 +123,17 @@
 - enumerable:false for any secret-bearing field (recipients/cc/customer_id treated as PII)
 - atomic file write = temp + rename, lock via proper-lockfile (Phase 3)
 - All new code TDD: red → green → refactor. No new code without a failing test first.
+
+## [2026-05-29] Weekly report speed optimization (Fix 1+2+3)
+Root cause (live measured): weekly stage1 30.5s, 89% = poll-sleep accumulation across 28 sequential stat-report jobs (14 days × 2 types). Network only 11%. Naver API not slow; our poll cadence + serialization was.
+
+- Fix 1 (concurrency): src/util/concurrency.ts (mapWithConcurrency + CONCURRENT_STAT_JOBS=8). server.ts fetchByDay → flat-28 task pool (future-date prefilter, 4xx/FAILED→[], 5xx rethrow, reportTp partition). 30.5s→8.7s.
+- Fix 2 (poll cadence): stat-reports.ts DEFAULT_POLL.initialDelayMs 1000→250. stat-reports tests inject explicit poll config so DEFAULT change = 0 regression. 8.7s→6.54s.
+- Fix 3 (3hop→2hop): merged generate_weekly_analysis_prompt into prepare_weekly_payload (returns payload+summary+system_prompt+user_prompt+expected_schema). Removed tool entirely. C2 floor preserved: dashboard = exactly 2 tool calls (prepare → [host LLM analysis turn] → finalize). C1 (no Anthropic SDK) intact.
+- Net: 30.5s → 6.54s (4.7×), tool surface 7→6, payload unchanged (1118 bytes = no regression).
+
+## Speed learnings
+- requestStatReport poll: first GET is immediate (sleep only AFTER a non-BUILT status). Latency was serial-accumulation, not a forced upfront sleep.
+- /stat-reports POST is statDt single-day only (no date-range) — can't reduce job count, must parallelize.
+- Live timing harness: /tmp/time-weekly.mjs (re-run to verify speedups against real API).
+- PRD: docs/exec-plans/active/weekly-report-speed-prd.md

@@ -5,7 +5,7 @@
 네이버 검색광고 API를 통해 광고주의 운영·전환 데이터를 자동 수집하고 두 흐름의 산출물을 만드는 MCP 서버.
 
 1. **Raw 분석 엑셀** (`generate_report`) — `(FORM) helloMAX Report.xlsx`와 동일한 10시트 xlsx (브랜드검색 성과는 hidden placeholder, AE 수기)
-2. **주간 대시보드** (3-tool 파이프라인) — KPI 집계 → 호스트 LLM 분석 → 광고주 발송용 html/xlsx + AE preview artifact
+2. **주간 대시보드** (2-tool 파이프라인) — KPI 집계 → 호스트 LLM 분석 → 광고주 발송용 html/xlsx + AE preview artifact
 
 helloMAX form xlsx **없이** 호출 가능 (live API 자동 fetch). xlsx 수동 입력 path도 fallback으로 유지.
 
@@ -189,31 +189,29 @@ npm start
 | `naver-ads://accounts`         | `{accounts: [{name, customerId}], default}` — 시크릿 미반환                         |
 | `naver-ads://history/{client}` | 광고주별 prepare 이력 JSONL (week, payload_hash, prepared_at, html_path, xlsx_path) |
 
-## 제공하는 MCP Tools (7개)
+## 제공하는 MCP Tools (6개)
 
 모든 도구는 선택적 `account?: string` 인자를 받습니다. 미지정 시 `accounts.json`의 `default` 광고주 (또는 legacy `.env`의 `default`) 사용. `client` = `account.name`.
 
-| 도구                               | 인자                                                                                            | 반환                                                                                                                                           |
-| ---------------------------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `validate_credentials`             | `{account?}`                                                                                    | `{ok, message}` — 자격증명 유효성 검증                                                                                                         |
-| `fetch_raw_data`                   | `{account?, reportTp, startDate(YYYYMMDD), endDate(YYYYMMDD), outputPath?, summarize?, limit?}` | `{rows?, count, perDate, ...}`. 응답 >900KB 자동 가드 → hint                                                                                   |
-| `generate_report`                  | `{account?, startDate, endDate, outputPath?}`                                                   | `{path, sheetNames, visibility, rowCount}` — 10시트 xlsx 생성. `outputPath` 생략 시 `./reports/{account}/{account}_{startDate}_{endDate}.xlsx` |
-| `prepare_weekly_payload`†          | `{account?, client, week, xlsxPath?, targetWeekLabel?, compareWeekLabel?}`                      | `{payload, payload_summary_md}` — Stage 1/3                                                                                                    |
-| `generate_weekly_analysis_prompt`† | `{payload}`                                                                                     | `{system_prompt, user_prompt, expected_schema}` — Stage 2/3                                                                                    |
-| `finalize_weekly_dashboard`†       | `{account?, client, week, payload, ai_analysis, correction?}`                                   | `{artifact_html, html_path, xlsx_path, payload_hash, data_warnings}` — Stage 3/3                                                               |
-| `prepare_daily_dashboard`          | `{date}`                                                                                        | `{date, violations, summary, data_warnings}` — 일별 KPI 임계치 점검 (Phase 3.5)                                                                |
+| 도구                         | 인자                                                                                            | 반환                                                                                                                                           |
+| ---------------------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `validate_credentials`       | `{account?}`                                                                                    | `{ok, message}` — 자격증명 유효성 검증                                                                                                         |
+| `fetch_raw_data`             | `{account?, reportTp, startDate(YYYYMMDD), endDate(YYYYMMDD), outputPath?, summarize?, limit?}` | `{rows?, count, perDate, ...}`. 응답 >900KB 자동 가드 → hint                                                                                   |
+| `generate_report`            | `{account?, startDate, endDate, outputPath?}`                                                   | `{path, sheetNames, visibility, rowCount}` — 10시트 xlsx 생성. `outputPath` 생략 시 `./reports/{account}/{account}_{startDate}_{endDate}.xlsx` |
+| `prepare_weekly_payload`†    | `{account?, client, week, xlsxPath?, targetWeekLabel?, compareWeekLabel?}`                      | `{payload, payload_summary_md, system_prompt, user_prompt, expected_schema}` — Stage 1/2 (분석 prompt 동봉)                                    |
+| `finalize_weekly_dashboard`† | `{account?, client, week, payload, ai_analysis, correction?}`                                   | `{artifact_html, html_path, xlsx_path, payload_hash, data_warnings}` — Stage 2/2                                                               |
+| `prepare_daily_dashboard`    | `{date}`                                                                                        | `{date, violations, summary, data_warnings}` — 일별 KPI 임계치 점검 (Phase 3.5)                                                                |
 
-† **v1.6 주간 보고서 3-stage 파이프라인** — 3가지 입력 경로 지원 (우선순위 순):
+† **v1.6 주간 보고서 2-stage 파이프라인** — 3가지 입력 경로 지원 (우선순위 순):
 
 1. `payloadProvider` 주입 (test 전용)
 2. `xlsxPath` + `targetWeekLabel` + `compareWeekLabel` (helloMAX form 수동 입력)
-3. **live API** (기본 fallback) — `week`만 주면 ISO week → [week-1, week] 14일치 자동 fetch + aggregation
+3. **live API** (기본 fallback) — `week`만 주면 ISO week → [week-1, week] 14일치 자동 fetch + aggregation. fetch는 동시성 cap으로 병렬화 (stat-report job 14일×2종).
 
 호출 순서:
 
-- (1) `prepare_weekly_payload({client, week:"2026-W21"})` → PrecomputedPayload + payload_summary_md
-- (2) `generate_weekly_analysis_prompt({payload})` → system/user prompt + JSON Schema. **호스트 Claude가 직접 실행**해 `ai_analysis` 생성
-- (3) `finalize_weekly_dashboard({client, week, payload, ai_analysis})` → AE preview artifact HTML + 광고주 발송용 html/xlsx → `./reports/{client}/{client}_{week}.{html,xlsx}` 저장 + history JSONL append
+- (1) `prepare_weekly_payload({client, week:"2026-W21"})` → PrecomputedPayload + payload_summary_md + system/user prompt + expected_schema. **호스트 Claude가 동봉된 prompt를 직접 실행**해 `ai_analysis` 생성 (별도 prompt 생성 tool 없음)
+- (2) `finalize_weekly_dashboard({client, week, payload, ai_analysis})` → AE preview artifact HTML + 광고주 발송용 html/xlsx → `./reports/{client}/{client}_{week}.{html,xlsx}` 저장 + history JSONL append
 
 AE는 메일 클라이언트에서 그 파일들을 첨부해 광고주에게 직접 발송 (외부 Email MCP 의존 없음). 본 MCP 서버는 Anthropic SDK에 직접 의존하지 않음 — 분석은 호스트 LLM이 수행.
 
@@ -235,14 +233,14 @@ AE는 메일 클라이언트에서 그 파일들을 첨부해 광고주에게 �
 | 옵션                            | 시트/내용                         | 용도                             | AI 분석                     |
 | ------------------------------- | --------------------------------- | -------------------------------- | --------------------------- |
 | **A. `generate_report`**        | 10시트 raw audit xlsx             | AE 내부 audit / 원시 데이터 확인 | ❌                          |
-| **B. weekly 3-tool 파이프라인** | 3시트 발송용 xlsx + html artifact | 광고주 발송용 주간 대시보드      | ✅ (호스트 LLM이 직접 분석) |
+| **B. weekly 2-tool 파이프라인** | 3시트 발송용 xlsx + html artifact | 광고주 발송용 주간 대시보드      | ✅ (호스트 LLM이 직접 분석) |
 
 호스트 LLM 권장 응답 예:
 
 > "어떤 리포트 생성하시겠어요?
 >
 > 1. **Raw audit 엑셀** (10시트, 원시 데이터, 즉시 생성) — `generate_report`
-> 2. **주간 대시보드** (KPI 요약 + AI 분석 + 광고주 발송용 html/xlsx) — weekly 3-stage 파이프라인"
+> 2. **주간 대시보드** (KPI 요약 + AI 분석 + 광고주 발송용 html/xlsx) — weekly 2-stage 파이프라인"
 
 ## Artifact 렌더링 (Claude Desktop)
 
@@ -260,10 +258,10 @@ generate_report({startDate:"20260518", endDate:"20260524"})
 // 2. 사용자 지정 경로
 generate_report({startDate:"20260518", endDate:"20260524", outputPath:"/tmp/r.xlsx"})
 
-// 3. 주간 보고서 자동 생성 (xlsx form 불필요)
+// 3. 주간 보고서 자동 생성 (xlsx form 불필요) — 2-tool
 prepare_weekly_payload({client:"hellomax", week:"2026-W21"})
-generate_weekly_analysis_prompt({payload: <prev result>})
-// → host LLM이 ai_analysis 생성
+// → payload + payload_summary_md + system_prompt/user_prompt/expected_schema
+// → host LLM이 동봉된 prompt로 ai_analysis 직접 생성
 finalize_weekly_dashboard({client:"hellomax", week:"2026-W21", payload, ai_analysis})
 // → ./reports/hellomax/hellomax_2026-W21.{xlsx,html} + artifact_html
 
@@ -330,7 +328,7 @@ src/
 │  ├─ lock.ts               # (client, week) advisory lock
 │  ├─ payload-hash.ts
 │  └─ timezone.ts
-├─ mcp/server.ts            # L1: MCP 서버 + 7 tools + 3 resources
+├─ mcp/server.ts            # L1: MCP 서버 + 6 tools + 3 resources
 ├─ util/dates.ts            # 날짜/주차/ISO week 변환
 ├─ cli.ts                   # stdio 진입점
 └─ index.ts                 # 라이브러리 export

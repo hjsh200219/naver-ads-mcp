@@ -322,6 +322,36 @@
         "MCP tool count in tests/mcp.test.ts updated 6→7. naver-ads://history/{client} resource shows daily entries alongside weekly (no resource changes needed — same shape)",
         "Total US-020 신규 tests ≥ 6"
       ]
+    },
+    {
+      "id": "US-021",
+      "title": "[speed] poll initialDelayMs 1000→250 (weekly fetch 추가 단축)",
+      "priority": 21,
+      "passes": true,
+      "acceptanceCriteria": [
+        "src/api/stat-reports.ts DEFAULT_POLL.initialDelayMs == 250 (1000에서 변경), maxDelayMs/totalTimeoutMs 불변",
+        "기존 tests/stat-reports.test.ts 17개 전부 pass (모두 poll 인자 명시 주입이라 DEFAULT 값 비의존 — 회귀 0)",
+        "npm run typecheck 0 errors",
+        "라이브 재측정: weekly stage1 시간이 8.7s 이하 (initialDelay 단축분 만큼; 큰 광고주 job에서 효과 큼)"
+      ]
+    },
+    {
+      "id": "US-022",
+      "title": "[speed] weekly 3홉→2홉: generate_weekly_analysis_prompt를 prepare_weekly_payload에 통합",
+      "priority": 22,
+      "passes": true,
+      "acceptanceCriteria": [
+        "prepare_weekly_payload 반환에 system_prompt/user_prompt/expected_schema 3필드 추가 (payload, payload_summary_md와 함께)",
+        "generate_weekly_analysis_prompt tool 완전 제거: GenerateWeeklyPromptSchema + tool 함수 + ServerDeps 반환 타입 필드 + tools/list 등록 객체 + switch case + tools 객체 매핑 전부 삭제",
+        "C2 검증: dashboard 경로가 정확히 2 tool call (prepare -> [host LLM 분석 턴] -> finalize). C1(Anthropic 비의존) 유지",
+        "description 갱신: prepare Stage 1/3->1/2 + prompt 동봉 명시, finalize Stage 3/3->2/2, generate_report description 안의 weekly 파이프라인 언급(prepare->generate->finalize)->(prepare->finalize)",
+        "weekly-prompt.ts 3 export(buildSystemPrompt/buildUserPrompt/EXPECTED_AI_ANALYSIS_SCHEMA)는 prepare가 계속 소비 - import 유지 (함정: 지우면 안 됨)",
+        "PrecomputedPayloadSchema는 FinalizeWeeklySchema도 쓰므로 유지 (GenerateWeeklyPromptSchema 래퍼만 삭제)",
+        "tests/mcp.test.ts tool count 9->8, generate_weekly_analysis_prompt 단언 삭제",
+        "tests/prepare-weekly-dashboard.test.ts: generate describe 블록을 prepare 테스트로 흡수, malformed-payload-zod 테스트 삭제(스키마 제거됨)",
+        "npm run typecheck 0 errors, 전체 테스트 pass, lsp_diagnostics 0 errors on server.ts",
+        "README/CLAUDE.md tool 수 7->6, 3-tool->2-tool 갱신"
+      ]
     }
   ]
 }
