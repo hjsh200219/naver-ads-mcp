@@ -62,6 +62,10 @@ UI 보관: 일자별 30일, 시간대별 7일. 자동화하려면 Playwright 외
 - 5xx: exponential backoff 3회
 - 429: `Retry-After` 헤더 존중 (skipNextDelay flag로 double-wait 방지)
 
+# /stat-reports = statDt 단일 일자 전용 (날짜 범위 미지원)
+
+POST body = `{reportTp, statDt}` 단일 날짜만. startDate/endDate 범위 미지원. weekly 14일치 = 14 job × reportTp 수 = job 수 곱산. **job 수 축소 불가 → latency 개선은 병렬화가 유일 경로** (cap pool, [[concurrency-util-apply-scope]]). 관련 latency 실측: [[stat-report-latency-profile]], poll 동작: [[stat-report-poll-behavior]].
+
 # 미래 statDt = 400 Bad Request (commit ab5b3ae)
 
 `/stat-reports` POST에 `statDt > today` 보내면 **HTTP 400** 즉시 반환. `prepare_weekly_payload` live path가 ISO week `[Mon, Sun]` 7일치 fetch하면 진행 중인 주에서 5/22~5/24 등 미래 일자 포함 → 전체 fail.

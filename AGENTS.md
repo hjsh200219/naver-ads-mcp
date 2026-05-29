@@ -46,7 +46,7 @@ TypeScript MCP server that automates Naver Search Ad data collection and generat
 | 명령                | 용도                       |
 | ------------------- | -------------------------- |
 | `npm run typecheck` | TypeScript 검증 (0 errors) |
-| `npm test`          | vitest run (354 passing)   |
+| `npm test`          | vitest run (359 passing)   |
 | `npm run build`     | tsc → dist/                |
 
 ## Critical Constraints

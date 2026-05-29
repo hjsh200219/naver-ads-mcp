@@ -1,11 +1,33 @@
 ---
 name: weekly-dashboard-3tool-flow
-description: prepare_weekly_dashboard가 3-tool로 분리됨 — Anthropic 호출은 MCP 서버에서 사라지고 host Claude가 직접 분석 담당
+description: weekly dashboard 2-tool 흐름 (3→2 통합, 2026-05-29) — Anthropic 호출은 MCP에서 없고 host Claude가 직접 분석. C2 = 최소 2콜 floor
 type: project
 created: 2026-05-21
 ---
 
-# Weekly Dashboard 3-tool 흐름 (v1.7)
+# Weekly Dashboard 2-tool 흐름 (2026-05-29 갱신; 원래 3-tool에서 통합)
+
+## ⚡ 2026-05-29 — 3-tool → 2-tool 통합
+
+`generate_weekly_analysis_prompt` tool 제거. system_prompt/user_prompt/expected_schema를 `prepare_weekly_payload` 반환에 동봉. round-trip(host LLM 턴) 1회 절감. MCP surface 7→6 tools.
+
+새 흐름:
+
+```
+1. prepare_weekly_payload({client, week})
+   → {payload, payload_summary_md, system_prompt, user_prompt, expected_schema}
+   ※ host Claude가 동봉 prompt로 분석 → AiAnalysis JSON 작성
+2. finalize_weekly_dashboard({client, week, payload, ai_analysis})
+   → {artifact_html, html_path, xlsx_path, payload_hash, data_warnings}
+```
+
+## C2 제약 — 최소 2 tool call floor
+
+host-LLM-중간-분석이 구조적으로 필요(tool1 → [host 분석 턴] → tool2). 1콜로 압축 = 분석을 서버가 해야 함 = C1(Anthropic 비의존) 위반. **2콜이 바닥, 그 아래 불가.** 통합은 floor를 안 깸. 관련: [[stat-report-latency-profile]] [[anthropic-data-transmission-policy]]
+
+---
+
+# (이력) 원래 3-tool 흐름 (v1.7)
 
 ## 변경 사유
 

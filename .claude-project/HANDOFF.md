@@ -1,31 +1,31 @@
 ---
-created: 2026-05-21T23:30:00+09:00
+created: 2026-05-29T00:00:00+09:00
 project: naver-ads-mcp
-summary: Desktop 실전 호출에서 발견된 5개 실패 모드 fix — Anthropic SDK 호출 시도/sandbox 경로/cwd="/" mkdir fail/artifact 미렌더/형식 선택 안 묻기. 354/354 pass 유지.
+summary: AE "리포트 30분, 질문 많음" 보고 → 속도 병목 진단 → Fix 1+2+3 구현·검증·커밋·푸시. weekly stage1 30.5s → 6.5s (4.7×).
 ---
 
 ## Session Digest
 
-이전 push (698defd) 이후 Claude Desktop으로 weekly 보고서 e2e 시도하며 발견된 5개 실패 모드 순차 fix. 각각 코드/description 변경으로 해결. 모두 호스트 dry-run으로 통과 확인. Desktop 재시작 + 재호출이 다음 검증 단계.
+사용자(AE) 보고 "리포트 30분, 질문 많음" 수신 → 원인 분석 결과 속도(per-report runtime)가 핵심 문제로 판명. poll-sleep이 전체 시간의 89%를 차지하고 있었음. PRD 작성 후 Fix 1~3 순차 구현. architect 승인, 359 tests pass, 커밋(5ad5830) 푸시 완료.
 
 ## Progress
 
-- ✅ **ab5b3ae**: weekly/daily live API path 미래 statDt skip + 4xx continue (Naver API 400 fail 해결)
-- ✅ **a0eafe4**: generate_weekly_analysis_prompt description 강화 — "YOU (calling LLM) are analyst. Do NOT call external Anthropic API"
-- ✅ **23e59e7**: generate_report outputPath required → optional 정정. outputPath description에 "host 머신 경로, caller sandbox 금지" 명시
-- ✅ **ea02abd**: cli.ts에서 import.meta.url로 project root 계산 → REPORTS_BASE_DIR을 서버에 명시 주입. Desktop이 cwd="/" 설정해도 안전. server.ts fallback default도 `process.cwd()` → `os.homedir()` 로 변경
-- ✅ **81032b5**: finalize_weekly_dashboard description에 "artifact_html을 Claude Desktop artifact UI(text/html)로 렌더링" 명시. README "리포트 선택 가이드" + "Artifact 렌더링" 섹션 신규
-- ✅ **20cf021**: prepare_weekly_payload + generate_report 양쪽 description 첫머리에 "STOP — BEFORE CALLING: 형식 선택 안 했으면 ASK first" 강제 (한쪽만 넣으면 다른 path가 default됨)
-- ✅ 354/354 tests pass, typecheck 0 errors
-- ✅ Memory 3건 신규: mcp-server-cwd-pitfall, caller-sandbox-vs-host-paths, tool-description-llm-guidance-limits
+- ✅ **원인 진단**: poll-sleep 89% 주범 확인. weekly stage1 실측 30.5s
+- ✅ **PRD 작성**: `docs/exec-plans/active/weekly-report-speed-prd.md`
+- ✅ **Fix 1**: `src/util/concurrency.ts` 신규 — `mapWithConcurrency` cap 8. `server.ts` fetchByDay flat-28 pool로 변경
+- ✅ **Fix 2**: `src/api/stat-reports.ts` initialDelayMs 1000 → 250 단축
+- ✅ **Fix 3**: `generate_weekly_analysis_prompt` tool 제거, `prepare_weekly_payload` 응답에 prompt 통합. MCP 7→6 tools, weekly 3-hop → 2-hop
+- ✅ **실측 결과**: weekly stage1 30.5s → 6.5s (4.7× 개선)
+- ✅ **architect APPROVED**, 359/359 tests pass, typecheck 0 errors
+- ✅ **5ad5830 커밋 푸시 완료**
+- ✅ **"질문 많음" 비목표 확정**: 의도된 동작 — AE가 호스트 LLM 질문에 직접 응답하는 플로우
 
 ## Next Steps
 
-1. **Claude Desktop 완전 종료(Cmd+Q) + 재실행** → MCP 서버 재spawn, 최신 코드 + tool description 로드 확인. log에 `reports=<project>/reports` 라인 보이면 성공
-2. **"이번주 hellomax 리포트" 재호출** → Desktop이 (A) raw 10시트 vs (B) weekly dashboard 옵션 묻고 진행 확인
-3. **사용자가 (B) 선택** → prepare_weekly_payload → generate_weekly_analysis_prompt → finalize_weekly_dashboard 통과 + artifact UI 렌더 확인
-4. **chmod 600 accounts.json** (warning 매 startup)
-5. **만약 Desktop이 여전히 안 묻으면** → dispatcher tool 도입 검토 (단일 entry tool이 사용자 응답 기반 분기). 코드 description 강제로 부족 시 유일 대안
+1. **Desktop/Claude Code 재시작 필수** — 새 6-tool/2-hop 구조 로드. tsx 모듈 캐시 주의 (Cmd+Q 완전 종료 후 재실행)
+2. **큰 광고주 baseline 재측정** — 현재 n=1, hellomax payload 1118 bytes(소형). 대형 광고주는 더 느릴 수 있음 → 실측 필요
+3. **weekly 2-hop 플로우 검증**: `prepare_weekly_payload` → `finalize_weekly_dashboard` (3-hop에서 제거된 middle tool 없이 동작 확인)
+4. **fix 3 후속 문서 갱신** — CLAUDE.md의 3-tool 구조 설명이 2-hop 기준으로 업데이트됐는지 확인
 
 ## Blockers
 
@@ -33,15 +33,15 @@ summary: Desktop 실전 호출에서 발견된 5개 실패 모드 fix — Anthro
 
 ## Watch Out
 
-- **Desktop tsx 모듈 캐시**: file 변경해도 process 살아있으면 옛 코드 reuse. 항상 Cmd+Q 후 재실행
-- **artifact 렌더링은 client 정책 의존**: description으로 유도만 가능, Desktop 측 구현에 따라 안 될 수 있음
-- **caller sandbox 경로**: Desktop이 자기 sandbox 경로(`/home/claude`, `/mnt/user-data`) 인식 → 가끔 그 경로 outputPath로 전달. description에 명시했으나 LLM 무시 가능. 사용자가 outputPath 생략 권장
-- **REPORTS_BASE_DIR 정합**: cli.ts에서 명시 주입. 단 server.ts library mode(외부 import 시) fallback은 `os.homedir()` — homedir 가정 위험할 경우 deps.reportsBaseDir 명시 권장
-- **weekly live path partial data**: 진행 중인 주는 미래 일자 silent skip → kpi_current이 7일치 아님
+- **tsx 모듈 캐시**: Desktop 프로세스 살아있으면 옛 7-tool 코드 reuse. 반드시 Cmd+Q 완전 종료
+- **n=1 실측**: 30.5s → 6.5s는 소형 광고주 기준. 대형 광고주에서 다른 병목 존재 가능
+- **generate_weekly_analysis_prompt 제거**: 이전 세션 컨텍스트나 스크립트에서 해당 tool 호출 시 "tool not found" 오류. 사용 측 업데이트 필요
+- **2-hop 플로우에서 prompt 위치**: prompt가 `prepare_weekly_payload` 응답에 포함됨. 호스트 LLM이 해당 필드를 올바르게 파싱하는지 첫 실사용 시 확인
+- **accounts.json chmod 600**: startup warning 계속 출력 중. 조기 처리 권장
 
 ## Files Touched
 
-- src/mcp/server.ts (description 강화, REPORTS_BASE_DIR fallback)
-- src/cli.ts (project root resolve + REPORTS_BASE_DIR 주입)
-- README.md (리포트 선택 가이드 + artifact 섹션)
-- .claude-project/memory/{mcp-server-cwd-pitfall, caller-sandbox-vs-host-paths, tool-description-llm-guidance-limits}.md (신규)
+- `src/util/concurrency.ts` (신규 — mapWithConcurrency)
+- `src/mcp/server.ts` (fetchByDay flat-28 pool, generate_weekly_analysis_prompt tool 제거, prepare_weekly_payload 응답에 prompt 통합)
+- `src/api/stat-reports.ts` (initialDelayMs 1000 → 250)
+- `docs/exec-plans/active/weekly-report-speed-prd.md` (신규 PRD)
