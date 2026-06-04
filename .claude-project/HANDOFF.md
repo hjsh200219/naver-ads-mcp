@@ -1,47 +1,42 @@
 ---
-created: 2026-05-29T00:00:00+09:00
+created: 2026-06-04T00:00:00+09:00
 project: naver-ads-mcp
-summary: AE "리포트 30분, 질문 많음" 보고 → 속도 병목 진단 → Fix 1+2+3 구현·검증·커밋·푸시. weekly stage1 30.5s → 6.5s (4.7×).
+summary: Humax AX 강의 계획서 5~7회차 작성·커밋·푸시 (7b08dcb). Vercel 배포를 5→6회로 이동해 5회 과부하·6회 콘솔 클릭쇼 동시 해소. 코드 변경 없음, 문서 전용.
 ---
 
 ## Session Digest
 
-사용자(AE) 보고 "리포트 30분, 질문 많음" 수신 → 원인 분석 결과 속도(per-report runtime)가 핵심 문제로 판명. poll-sleep이 전체 시간의 89%를 차지하고 있었음. PRD 작성 후 Fix 1~3 순차 구현. architect 승인, 359 tests pass, 커밋(5ad5830) 푸시 완료.
+문서 전용 세션. `docs/references/humax-lecture-plan-v2.docx`(4회차 원본)를 출처로 Humax AX 강의 5~7회차 계획서를 신규 작성. 사용자 피드백으로 Vercel 배포를 5회→6회 앞부분으로 이동 → 5회 과부하와 6회 "콘솔 클릭쇼" 약점을 한 번에 해소. Google Cloud Console 한 곳만 깊게(Kakao/Naver는 자료 자습). 7b08dcb 커밋·푸시 완료. 사이드 작업: client_url.csv URL 유효성 Playwright 검증, yangjucc.co.kr 로그인 시도(중단).
 
 ## Progress
 
-- ✅ **원인 진단**: poll-sleep 89% 주범 확인. weekly stage1 실측 30.5s
-- ✅ **PRD 작성**: `docs/exec-plans/active/weekly-report-speed-prd.md`
-- ✅ **Fix 1**: `src/util/concurrency.ts` 신규 — `mapWithConcurrency` cap 8. `server.ts` fetchByDay flat-28 pool로 변경
-- ✅ **Fix 2**: `src/api/stat-reports.ts` initialDelayMs 1000 → 250 단축
-- ✅ **Fix 3**: `generate_weekly_analysis_prompt` tool 제거, `prepare_weekly_payload` 응답에 prompt 통합. MCP 7→6 tools, weekly 3-hop → 2-hop
-- ✅ **실측 결과**: weekly stage1 30.5s → 6.5s (4.7× 개선)
-- ✅ **architect APPROVED**, 359/359 tests pass, typecheck 0 errors
-- ✅ **5ad5830 커밋 푸시 완료**
-- ✅ **"질문 많음" 비목표 확정**: 의도된 동작 — AE가 호스트 LLM 질문에 직접 응답하는 플로우
+- ✅ **강의 계획서 작성**: `docs/references/humax-lecture-plan-5-7.md` (5~7회차, 각 120min 모듈 분배 + 적합성 분석)
+  - 5회: SQL · Supabase · Next.js (로컬) — DB+로컬 웹까지
+  - 6회: Vercel 배포(5회서 이동) + Google Cloud Console 단일 심화
+  - 7회: gstack + Railway Remote MCP (캡스톤, DRI R 완성)
+- ✅ **부담 분산 개정**: Vercel 위치 5→6 이동으로 두 리스크 동시 해소. 시간 합 정합 검증(세 회차 모두 120min)
+- ✅ **원본 docx 동봉**: humax-lecture-plan-v2.docx 함께 커밋
+- ✅ **7b08dcb 커밋·푸시 완료** (prettier가 .md 표 정렬 자동 적용)
+- ✅ **보안 정리**: 세션 중 생성한 /tmp/yangju_creds.txt(평문 자격증명) 삭제
 
 ## Next Steps
 
-1. **Desktop/Claude Code 재시작 필수** — 새 6-tool/2-hop 구조 로드. tsx 모듈 캐시 주의 (Cmd+Q 완전 종료 후 재실행)
-2. **큰 광고주 baseline 재측정** — 현재 n=1, hellomax payload 1118 bytes(소형). 대형 광고주는 더 느릴 수 있음 → 실측 필요
-3. **weekly 2-hop 플로우 검증**: `prepare_weekly_payload` → `finalize_weekly_dashboard` (3-hop에서 제거된 middle tool 없이 동작 확인)
-4. **fix 3 후속 문서 갱신** — CLAUDE.md의 3-tool 구조 설명이 2-hop 기준으로 업데이트됐는지 확인
+1. (강의 운영) 5회 TS 깊이 최소화 여부 사전 결정 — "동작하는 페이지" 한정 권장
+2. (강의 운영) 6·7회 직전 콘솔/스킬 UI 스크린샷 갱신 (Google Cloud·gstack·Railway 변동 잦음)
+3. (선택) Kakao/Naver 자습 자료 별도 작성 — 본문은 자료 제공으로만 명시됨
 
 ## Blockers
 
-- 없음
+- 없음 (문서 작업 완료)
 
 ## Watch Out
 
-- **tsx 모듈 캐시**: Desktop 프로세스 살아있으면 옛 7-tool 코드 reuse. 반드시 Cmd+Q 완전 종료
-- **n=1 실측**: 30.5s → 6.5s는 소형 광고주 기준. 대형 광고주에서 다른 병목 존재 가능
-- **generate_weekly_analysis_prompt 제거**: 이전 세션 컨텍스트나 스크립트에서 해당 tool 호출 시 "tool not found" 오류. 사용 측 업데이트 필요
-- **2-hop 플로우에서 prompt 위치**: prompt가 `prepare_weekly_payload` 응답에 포함됨. 호스트 LLM이 해당 필드를 올바르게 파싱하는지 첫 실사용 시 확인
-- **accounts.json chmod 600**: startup warning 계속 출력 중. 조기 처리 권장
+- **7회차 하드 선행조건**: 3회 로컬 naver-ads-mcp 설치 미완료자는 Remote MCP 변환 불가
+- yangjucc.co.kr 로그인 기능은 미완 — 사용자가 Playwright 수동 로그인으로 방향 전환했고 그것도 중단됨. 재개 시 인증 컨텍스트(본인 계정 여부) 먼저 확인
+- `.env`에 YANGJU_ID/YANGJU_PW 평문 존재 (gitignore됨). 노출 우려 시 로테이션 권장
 
 ## Files Touched
 
-- `src/util/concurrency.ts` (신규 — mapWithConcurrency)
-- `src/mcp/server.ts` (fetchByDay flat-28 pool, generate_weekly_analysis_prompt tool 제거, prepare_weekly_payload 응답에 prompt 통합)
-- `src/api/stat-reports.ts` (initialDelayMs 1000 → 250)
-- `docs/exec-plans/active/weekly-report-speed-prd.md` (신규 PRD)
+- `docs/references/humax-lecture-plan-5-7.md` (신규)
+- `docs/references/humax-lecture-plan-v2.docx` (신규, 원본 동봉)
+- `client_url.csv` (URL 유효성 결과 컬럼 추가 — gitignored, 미커밋)
