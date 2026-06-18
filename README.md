@@ -310,11 +310,15 @@ src/
 ├─ parser/                  # L2: helloMAX form 파서 + 주간/일간 aggregate
 │  ├─ excel-template.ts     # parseHelloMaxXlsx
 │  ├─ aggregate-payload.ts  # aggregateWeeklyPayload → PrecomputedPayload
-│  └─ aggregate-daily.ts    # aggregateDailyPayload → DailyPayload
+│  ├─ aggregate-daily.ts    # aggregateDailyPayload → DailyPayload
+│  ├─ precompute-kpi.ts     # KPI 사전계산 (ROAS/CTR/CPC/CPA/CVR, pctDelta)
+│  └─ types.ts              # zod 스키마: KpiSummary, PrecomputedPayload, AiAnalysis 등
 ├─ analyzer/                # L2: weekly LLM prompt + threshold 규칙
 │  ├─ weekly-prompt.ts      # buildSystemPrompt / buildUserPrompt / expected schema
 │  └─ thresholds.ts         # daily KPI 임계 평가
 ├─ excel/                   # L2: 10시트 xlsx writer
+│  ├─ headers.ts            # 시트별 컬럼 헤더 정의
+│  ├─ styles.ts             # ExcelJS 스타일/서식 상수
 │  └─ writer.ts             # ExcelJS 기반 (브랜드검색 hidden)
 ├─ output/                  # L1: 광고주 발송용 산출물
 │  ├─ file-writer.ts        # ./reports/{client}/{client}_{week}.{html,xlsx} atomic write
