@@ -1,31 +1,32 @@
 ---
-created: 2026-07-01T09:30:29+09:00
+created: 2026-08-13T00:25:32+09:00
 project: naver-ads-mcp
-summary: 강의 계획서 5회차 초반에 "모듈 5-0 하네스 설정 — CLAUDE.md의 역할"(15min) 신설. CLAUDE.md 역할을 Claude Code 기준으로 서술. 시간 맞추려 5-3 Next.js 35→30 트림. 22e0433 커밋·푸시. 문서 전용.
+summary: 광고회사용 2회차 사례 중심 강의 계획서 신규 작성 후, 강의 교안 3종을 shconsulting/docs/ax-lecture로 이관. docs/references/ 잔존 4개는 코드·테스트 의존으로 이동 제외. 45eec3c / ed0b03d. 문서 전용.
 ---
 
 ## Session Digest
 
-문서 전용 세션. `docs/references/zb-lecture-plan-1-7.md` 5회차 앞부분에 하네스 오프닝 모듈 신설.
+문서 전용 세션, 3단계로 진행. (1) 기존 `zb-lecture-plan-1-7.md`(Humax AX 7회차, 520줄) 확인. (2) 광고회사 대상 2회차 강의 계획서 `adagency-lecture-plan-1-2.md`(340줄) 신규 작성 — 1회차는 기존 모듈 1-1~1-4 그대로 유지하고 기존 2~7회차를 업무 사례 5개로 재편. (3) 강의 교안 3종을 `shconsulting/docs/ax-lecture/`로 이관하고 원본 삭제. `docs/references/` 잔존 4개는 코드·테스트가 참조해 이동 제외.
 
-- **모듈 5-0: 하네스 설정 — CLAUDE.md의 역할 (15min)** 을 5-1 앞에 삽입.
-- CLAUDE.md 역할을 **Claude Code 기준**으로 서술: 세션 시작 시 자동 로드되는 프로젝트 진입 문서, map-not-handbook 원칙, 우선순위 계층(엔터프라이즈→프로젝트→유저→로컬), AGENTS.md ↔ CLAUDE.md 단일 소스.
-- 실습: 본 프로젝트 CLAUDE.md 구조 확인 → `/init`로 학생 5회 프로젝트(Next.js/Supabase)에 최소 CLAUDE.md 1개 생성.
-- **시간 재조정 (tradeoff)**: 하네스 15min 확보 위해 5-3 Next.js 35→30 트림. 합계 5-0(15)+5-1(20)+5-2(25)+5-3(30)+5-4(20)=110 + 버퍼 10 = 120min 유지.
-- 5회 도입 blockquote에 "오프닝: 하네스 정비" 1줄 추가.
+코드 변경 없음. lint 0 / typecheck 0 / test 359 passing / build 통과.
 
 ## Progress
 
-- ✅ 모듈 5-0 신설 (하네스 개념 + CLAUDE.md 역할 + `/init` 실습)
-- ✅ 5-3 시간 35→30 트림 + 시간 합계 노트 갱신
-- ✅ 도입 blockquote 하네스 오프닝 1줄
-- ✅ 커밋 22e0433 `docs(lecture): add 모듈 5-0 하네스 설정...` + main push (rebase 후)
+- ✅ `adagency-lecture-plan-1-2.md` 신규 작성 (340줄). 2회차 = 사례 5개, 핸즈온 1개(사례 1 주간 리포트) + 시연 4개. 설치 7개는 사전 과제로 강의 밖 이관
+- ✅ 사례 근거를 `(사업) 광고운영부서 업무 Workflow 작성_260429.docx`의 STEP 번호·평균 소요시간·Pain Point에서 도출 (가상 예제 아님)
+- ✅ 원본 7회차 → 2회차 커버리지 표 작성. 삭제 8개 명시(OMC, CCG, TDD, 하네스/CLAUDE.md, 재배포 디버깅, OAuth, Google Cloud Console, gstack)
+- ✅ 교안 3종 이관: `shconsulting/docs/ax-lecture/` (commit `ed0b03d`, rebase 후 push)
+- ✅ 원본 삭제 + `.gitignore` OMC state 패턴 보강 (commit `45eec3c`)
+- ✅ 양쪽 repo `origin/main` 동기 완료
+- ⬜ `(사업) 광고운영부서 업무 Workflow.docx` 교안 폴더 이관 여부 — 사용자 미결정
+- ⬜ `docs/SECURITY.md:109` 서술 부정확 — 미조치 (아래 Next Steps 2번)
 
 ## Next Steps
 
-1. (선택) 6·7회에도 하네스 회수 훅 삽입 검토 — 5-0에서 만든 학생 CLAUDE.md를 후반 배포 회차에서 재참조하면 일관성↑
-2. (선택) 5-3 트림 대신 다른 모듈에서 시간 확보하려면 사용자 지정 후 재조정
-3. 강의 계획서 다른 회차 harness/문서화 보강 요청 대기
+1. **(사용자 결정 대기)** `(사업) 광고운영부서 업무 Workflow 작성_260429.docx`를 교안 폴더로 옮길지. 현재 naver-ads-mcp에 유지 중 — 강의 사례 근거이면서 helloMAX 사업 문서라 양쪽 성격을 겸한다.
+2. **(사용자 결정 대기)** `docs/SECURITY.md:109`가 `docs/references/`를 "`.gitignore` + `.claudeignore` 등록"이라 서술하지만 **실제로는 4개 파일 모두 git 추적 중**이다 (`git check-ignore` 미매치, `git ls-files docs/references/` 4건 반환). 선택지: (a) 문서 서술을 현실에 맞게 수정, (b) 파일을 untrack. 단 xlsx는 테스트가 읽으므로 untrack하면 CI에서 테스트 불가 — 문서 수정이 현실적.
+3. **(선택)** `CLAUDE.md` Critical Constraints에 "`docs/references/` 코드·테스트 참조 자산 2건 이동·개명 금지" 추가 검토. 이번 세션에 실제 이동 후보로 검토됐던 near-miss.
+4. **(선택)** 광고회사 계획서 후속 — 사전 과제용 OS별 설치 가이드 1장, 사례 2~5용 배포 자료(설정 파일·스크립트·템플릿 repo)가 계획서상 "배포" 전제인데 아직 없음.
 
 ## Blockers
 
@@ -33,9 +34,20 @@ summary: 강의 계획서 5회차 초반에 "모듈 5-0 하네스 설정 — CLA
 
 ## Watch Out
 
-- 5회 시간 예산 타이트(120min). 추가 모듈 삽입 시 반드시 다른 모듈 트림 동반 — 현재 버퍼 10min만 남음.
-- 파일명은 `zb-lecture-plan-1-7.md` (1~7회 통합본). 구 `humax-lecture-plan-5-7.md`/`zb-lecture-plan-5-7.md`는 이전 세션에서 통합·삭제됨 (git history 복구 가능).
+- **강의 교안은 이 repo에 없다.** 현재 위치: `/Users/hoshin/workspace/SHC/shconsulting/docs/ax-lecture/`
+  - `zb-lecture-plan-1-7.md` (Humax AX 7회차), `adagency-lecture-plan-1-2.md` (광고회사 2회차), `zb-lecture-playground.html` (계획 튜너), `20260616_claude-ax-통합교안_범용.html` (기존)
+  - 교안 편집·추가는 그 repo에서. 이 repo에 새 교안 만들지 말 것.
+- **`docs/references/` 4개는 이동·개명 금지.** "강의 자료 폴더"로 오인하기 쉬움:
+  - `1778140340186_(FORM) helloMAX Report_신청완료.xlsx` ← **`tests/e2e-reference-parity.test.ts:135` 파일명 하드코딩** (옮기면 테스트 즉시 실패) + `src/excel/styles.ts:2` 주석
+  - `hellomax_weekly_comment_sample.html` ← `src/dashboard/artifact-html.ts:2`, `src/analyzer/weekly-prompt.ts:8` (주석만 — 옮기면 **테스트는 통과하고 경로만 조용히 썩는다**)
+  - `(사업) 광고운영부서 업무 Workflow.docx`, `HelloMax_주간리포트_AI코멘트_기획안_v2.0.docx` — 사업 문서
+- **shconsulting repo는 로컬이 원격보다 자주 뒤처진다.** 이번에 30+ 커밋 뒤처져 push가 non-fast-forward 거부됨. 작업 시작 전 `git -C /Users/hoshin/workspace/SHC/shconsulting pull --rebase origin main`.
+- `.gitignore`의 `.omc/state/`처럼 **패턴 중간에 슬래시가 있으면 루트 앵커**여서 하위 디렉터리를 못 잡는다. `**/` prefix 필요. (`.omc/skills/**`는 committable 예외라 전체 무시 안 함)
+- 광고회사 계획서의 성공 판정 지표는 하나로 잡았다 — **주간 리포트 html+xlsx를 자기 손으로 만든 수강생 비율 80%**. 미달이면 사전 과제 관리 실패이고 시연 4개는 무의미.
 
 ## Files Touched
 
-- `docs/references/zb-lecture-plan-1-7.md` (5회차: 모듈 5-0 신설, 5-3 시간 트림, blockquote)
+- `.gitignore` — `**/.omc/state/` 계열 4줄 추가 (`docs/references/.omc/` untracked 노출 해소)
+- `docs/references/zb-lecture-plan-1-7.md` — 삭제 (-520줄, shconsulting으로 이관)
+- `.claude-project/memory/` — 신규 3건(`docs-references-inventory`, `asset-move-grep-code-comments`, `shconsulting-repo-behind-remote`) + 갱신 1건(`gitignore-dirname-anchor` 과소 매칭 함정 추가) + `MEMORY.md` 인덱스
+- (타 repo) `shconsulting/docs/ax-lecture/` — 교안 3종 추가

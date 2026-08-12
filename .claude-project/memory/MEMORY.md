@@ -16,7 +16,8 @@
 - [anthropic-data-transmission-policy.md](anthropic-data-transmission-policy.md) — 광고주 데이터 외부 LLM 전송 정책 (NDA 허용·PII 최소화·점검 게이트)
 - [mcp-responsibility-separation.md](mcp-responsibility-separation.md) — MCP는 자기 도메인에 집중, 이메일 등은 외부 MCP에 표준 payload로 위임 (v1.5 채택)
 - [v1.6-lock-semantics-serialize-only.md](v1.6-lock-semantics-serialize-only.md) — v1.6 lock은 prepare 직렬화만, N건 모두 성공. SEND lock 거절 semantics는 v1.5 폐기됨
-- [gitignore-dirname-anchor.md](gitignore-dirname-anchor.md) — 앵커 없는 `output/` 패턴이 `src/output/`를 삼켜 v1.6 커밋 3파일 누락; 항상 `/dirname/`으로 앵커
+- [gitignore-dirname-anchor.md](gitignore-dirname-anchor.md) — .gitignore 앵커 양방향 함정: 앵커 없는 `output/`은 과도 매칭, 중간 슬래시 `.omc/state/`는 과소 매칭 (`**/` 필요)
+- [docs-references-inventory.md](docs-references-inventory.md) — 강의 교안 3종은 shconsulting/docs/ax-lecture로 떠났고, docs/references/ 잔존 4개는 이동 금지 (xlsx는 테스트 하드 의존)
 - [layer-schema-duplication-ok.md](layer-schema-duplication-ok.md) — L4 config가 L2 스키마 필드를 재선언하는 duplication은 레이어 방향 위반 방지를 위해 의도적 허용
 - [history-schema-dual-mode-debt.md](history-schema-dual-mode-debt.md) — HistoryEntrySchema week 필드의 YYYY-Www/YYYY-MM-DD dual-mode는 단기 타협; 데일리 전용 필드 3개+ 시 분리 예정
 - [daily-history-per-client-always.md](daily-history-per-client-always.md) — prepare_daily_dashboard는 violation_count 무관 매핑된 광고주당 1건 history 기록 (audit trail 우선, commit f0442ed 이후)
@@ -37,6 +38,7 @@
 - [mcp-1mb-response-limit.md](mcp-1mb-response-limit.md) — MCP transport 응답 1MB 제한. outputPath/summarize/limit 패턴 대응
 - [mcp-server-cwd-pitfall.md](mcp-server-cwd-pitfall.md) — Claude Desktop이 MCP 서버 spawn 시 cwd="/" — process.cwd() 대신 import.meta.url로 project root 계산
 - [caller-sandbox-vs-host-paths.md](caller-sandbox-vs-host-paths.md) — MCP caller(LLM) sandbox(`/home/claude`)와 host 머신 경로 격리. outputPath에 caller 경로 금지
+- [shconsulting-repo-behind-remote.md](shconsulting-repo-behind-remote.md) — 강의 교안이 사는 shconsulting repo는 로컬이 자주 뒤처짐. 작업 전 `pull --rebase` 필수
 
 ## Feedback
 
@@ -46,3 +48,4 @@
 - [weekly-live-api-path.md](weekly-live-api-path.md) — prepare_weekly_payload는 xlsxPath 없이 ISO week만으로 자동 실행 가능 (live API fallback path)
 - [reports-path-convention.md](reports-path-convention.md) — generate_report 기본 출력 경로 + weekly/daily 파일명 규칙 통일 (./reports/<account>/ 구조)
 - [tool-description-llm-guidance-limits.md](tool-description-llm-guidance-limits.md) — MCP tool description으로 LLM 행동 유도는 약함. 다중 entry tool은 양쪽 description에 "STOP — BEFORE CALLING" 강제 필요. 그래도 무시되면 dispatcher tool 도입
+- [asset-move-grep-code-comments.md](asset-move-grep-code-comments.md) — 자산 이동 전 grep 필수. 참조는 테스트 하드 의존(즉시 실패)과 주석(조용히 썩음) 두 종류 — 그린 빌드는 후자를 못 잡는다
