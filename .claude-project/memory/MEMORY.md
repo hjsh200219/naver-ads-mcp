@@ -39,6 +39,7 @@
 - [mcp-server-cwd-pitfall.md](mcp-server-cwd-pitfall.md) — Claude Desktop이 MCP 서버 spawn 시 cwd="/" — process.cwd() 대신 import.meta.url로 project root 계산
 - [caller-sandbox-vs-host-paths.md](caller-sandbox-vs-host-paths.md) — MCP caller(LLM) sandbox(`/home/claude`)와 host 머신 경로 격리. outputPath에 caller 경로 금지
 - [shconsulting-repo-behind-remote.md](shconsulting-repo-behind-remote.md) — 강의 교안이 사는 shconsulting repo는 로컬이 자주 뒤처짐. 작업 전 `pull --rebase` 필수
+- [claudeignore-vs-gitignore-scope.md](claudeignore-vs-gitignore-scope.md) — ⚠️ `.claudeignore`는 git 노출을 안 막는다. 미익명화 실 계정 xlsx가 PUBLIC repo에 push된 미해결 사고 + 제거 3단계
 
 ## Feedback
 
