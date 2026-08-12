@@ -106,7 +106,7 @@ throw new NaverAdsApiError("인증 실패 (401). 자격증명을 확인하세요
 
 ## 로컬 데이터 보호
 
-- `docs/references/` — 실 광고주 템플릿 Excel. `.gitignore` + `.claudeignore` 등록
+- `docs/references/` — 실 광고주 템플릿 Excel. `.claudeignore` 등록(에이전트 열람 차단). ⚠️ **`.gitignore` 미등록 — 4개 파일이 git 추적 중이며 원격에 push된 상태.** `tests/e2e-reference-parity.test.ts`가 form xlsx를 읽으므로 untrack 시 fixture 이전이 선행 조건
 - `_workspace/` — 하네스 임시 작업 공간. `.gitignore` + `.claudeignore` 등록
 - 생성된 Excel 보고서는 `output/` 디렉토리 (`.gitignore` 등록 권장)
 
