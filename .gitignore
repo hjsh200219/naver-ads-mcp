@@ -22,6 +22,12 @@ coverage/
 .omc/research/
 .omc/logs/
 
+# 하위 디렉토리에 생성되는 OMC state도 제외 (.omc/skills/** 는 committable 예외)
+**/.omc/state/
+**/.omc/sessions/
+**/.omc/logs/
+**/.omc/research/
+
 # IDE
 .vscode/
 .idea/
