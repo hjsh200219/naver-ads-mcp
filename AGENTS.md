@@ -58,19 +58,6 @@ TypeScript MCP server that automates Naver Search Ad data collection and generat
 - SECRET_KEY는 헤더 미전송 (서명 생성 전용)
 - 브랜드검색 영역별 성과 시트는 항상 hidden (API 미지원)
 
-## LLM 코딩 행동 원칙
-
-Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
-
-Tradeoff: These guidelines bias toward caution over speed. For trivial tasks, use judgment.
-
-Layer note: These four principles are the behavioral/judgment layer. They complement — not duplicate — the tool-enforced invariants (P3 lint, P6 layer-rules, P7 knip dead-code). Tools catch mechanical violations after code exists; these guide the decisions tools cannot check (surfacing assumptions, avoiding over-building, not touching adjacent code, defining verifiable goals). All four are judgment, not lint targets.
-
-1. Think Before Coding — Don't assume. Don't hide confusion. Surface tradeoffs. State assumptions explicitly; if multiple interpretations exist, present them; if simpler approach exists, say so; if unclear, stop and ask.
-2. Simplicity First — Minimum code that solves the problem. No speculative features, no single-use abstractions, no unrequested configurability, no error handling for impossible scenarios. If 200 lines could be 50, rewrite it.
-3. Surgical Changes — Touch only what you must. Don't improve adjacent code. Match existing style. Mention unrelated dead code but don't delete it. Remove only imports/vars/functions YOUR changes made unused.
-4. Goal-Driven Execution — Transform tasks into verifiable goals (write failing test first, then make it pass). For multi-step tasks, state a plan with verify steps. Loop independently until criteria met.
-
 ## Documentation Map
 
 | 영역        | 문서                                                                                                                         |
